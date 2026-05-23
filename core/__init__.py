@@ -1,10 +1,12 @@
 """Shared core package for Maibi."""
 
+from core.audio import AudioFrame, PcmAudioFormat, PcmFrameSplitter
 from core.asr import AsrEvent, AsrEventType, AsrProvider, AsrSession
 from core.commit import CommitResult, CommitStatus, TextCommitter
 from core.config import AsrSessionConfig, Hotword, UsageLimitConfig
 
 __all__ = [
+    "AudioFrame",
     "AsrEvent",
     "AsrEventType",
     "AsrProvider",
@@ -13,6 +15,8 @@ __all__ = [
     "CommitResult",
     "CommitStatus",
     "Hotword",
+    "PcmAudioFormat",
+    "PcmFrameSplitter",
     "TextCommitter",
     "UsageLimitConfig",
     "__version__",
