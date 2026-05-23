@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于首版基础建设阶段。已完成产品计划、协作规范和 Python 项目骨架；正在评审 `core` 共享接口，为后续服务端、客户端和 ASR Provider 开发提供统一契约。
+项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架和 `core` 共享接口；正在推进 `server` 最小 FastAPI 签名服务。
 
 ## 已完成
 
@@ -17,21 +17,22 @@
 - PR #2：[Add project skeleton](https://github.com/zhubn123/maibi/pull/2)
   - 状态：已合并
   - 内容：新增 `README.md`、`pyproject.toml`、`client/`、`core/`、`server/`、`tests/`、`docs/`
+- PR #3：[Add core contracts](https://github.com/zhubn123/maibi/pull/3)
+  - 状态：已合并
+  - 内容：新增 ASR Provider/Session/Event、配置、热词、用量限制和文本提交接口
 
 ## 进行中
 
-- PR #3：[Add core contracts](https://github.com/zhubn123/maibi/pull/3)
+- PR #4：Add server minimal API
   - 状态：Draft
-  - 内容：新增 ASR Provider/Session/Event、配置、热词、用量限制和文本提交接口
-  - 验证：`.venv` 中运行 `pytest`，10 passed
+  - 内容：新增 `GET /healthz` 和 `POST /v1/asr/session` 最小 FastAPI 服务
 
 ## 下一步
 
-1. 合并 PR #3。
-2. PR #4：实现 `server/` 最小 FastAPI 签名服务。
-3. PR #5：实现 Mock ASR WebSocket 集成测试。
-4. PR #6：实现 `client/` 托盘和浮窗基础 UI。
-5. 在 PR #4 到 PR #6 之后，再并行推进麦克风采集、腾讯云 ASR Provider 和文本上屏能力。
+1. 合并 PR #4。
+2. PR #5：实现 Mock ASR WebSocket 集成测试。
+3. PR #6：实现 `client/` 托盘和浮窗基础 UI。
+4. 在 PR #5 到 PR #6 之后，再并行推进麦克风采集、腾讯云 ASR Provider 和文本上屏能力。
 
 ## 执行规则
 

@@ -43,6 +43,12 @@ pytest
 
 后续客户端和服务端启动命令会在对应模块完成后补充。
 
+启动签名服务：
+
+```powershell
+uvicorn server.app:app --reload
+```
+
 ## 开发流程
 
 - 文档小修、错别字和说明性规范更新可以直接提交到 `main`。
