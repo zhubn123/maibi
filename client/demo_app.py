@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeyEvent
@@ -33,16 +34,22 @@ from core import AsrSessionConfig, Hotword
 from core.providers.tencent import WebSocketsTencentDialer
 
 
+@dataclass(frozen=True, slots=True)
+class DragState:
+    offset_x: int
+    offset_y: int
+
+
 class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = reset_to_idle()
         self.tray: QSystemTrayIcon | None = None
+        self.drag_state: DragState | None = None
 
         self.setWindowTitle("Maibi")
         self.setFixedSize(660, 168)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         self.shell = QFrame()
@@ -186,6 +193,36 @@ class DemoWindow(QMainWindow):
             self._apply_key("Enter")
             return
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            position = event.globalPosition().toPoint()
+            top_left = self.frameGeometry().topLeft()
+            self.drag_state = DragState(
+                offset_x=position.x() - top_left.x(),
+                offset_y=position.y() - top_left.y(),
+            )
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self.drag_state is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            position = event.globalPosition().toPoint()
+            self.move(
+                position.x() - self.drag_state.offset_x,
+                position.y() - self.drag_state.offset_y,
+            )
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_state = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _run_demo_session(self) -> None:
         import asyncio
