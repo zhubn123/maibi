@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型和 PCM 分片骨架；正在推进麦克风采集适配层。
+项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架和麦克风采集适配层；正在推进腾讯云 ASR 签名 URL 构建。
 
 ## 已完成
 
@@ -32,18 +32,21 @@
 - PR #7：[Add PCM audio framing](https://github.com/zhubn123/maibi/pull/7)
   - 状态：已合并
   - 内容：新增 PCM 音频格式、200ms 分片器和纯字节流测试
+- PR #8：[Add microphone capture pipeline](https://github.com/zhubn123/maibi/pull/8)
+  - 状态：已合并
+  - 内容：新增客户端音频采集管线、sounddevice 配置骨架和 fake source 测试
 
 ## 进行中
 
-- PR #8：Microphone capture adapter
+- PR #9：Tencent ASR signer
   - 状态：开发中
-  - 内容：新增客户端音频采集管线、sounddevice 配置骨架和 fake source 测试
+  - 内容：新增腾讯云实时 ASR WebSocket 签名 URL 构建和脱敏测试
 
 ## 下一步
 
-1. 完成并合并 PR #8。
-2. PR #9：实现腾讯云 ASR Provider。
-3. PR #10：实现文本上屏能力。
+1. 完成并合并 PR #9。
+2. PR #10：实现文本上屏能力。
+3. 后续接入真实 ASR WebSocket session 和客户端录音发送管线。
 
 ## 执行规则
 
