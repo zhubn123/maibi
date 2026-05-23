@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -16,21 +17,29 @@ def test_healthz_returns_ok() -> None:
 
 def test_create_asr_session_returns_short_lived_session() -> None:
     client = TestClient(create_app())
-
-    response = client.post(
-        "/v1/asr/session",
-        json={
-            "provider": "tencent",
-            "engine": "16k_zh",
-            "hotwords": ["麦笔"],
-            "client_session_id": "session-1",
+    with patch.dict(
+        "os.environ",
+        {
+            "TENCENT_ASR_APPID": "123456",
+            "TENCENT_ASR_SECRET_ID": "secret-id",
+            "TENCENT_ASR_SECRET_KEY": "secret-key",
         },
-    )
+        clear=False,
+    ):
+        response = client.post(
+            "/v1/asr/session",
+            json={
+                "provider": "tencent",
+                "engine": "16k_zh",
+                "hotwords": ["麦笔"],
+                "client_session_id": "session-1",
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider"] == "tencent"
-    assert payload["websocket_url"].startswith("wss://")
+    assert payload["websocket_url"].startswith("wss://asr.cloud.tencent.com/asr/v2/123456?")
     assert datetime.fromisoformat(payload["expires_at"]) > datetime.now(UTC)
 
 
@@ -66,3 +75,28 @@ def test_create_asr_session_rejects_invalid_hotword() -> None:
 
     assert response.status_code == 422
     assert "whitespace" in response.json()["detail"]
+
+
+def test_create_asr_session_requires_configured_credentials() -> None:
+    client = TestClient(create_app())
+    with patch.dict(
+        "os.environ",
+        {
+            "TENCENT_ASR_APPID": "",
+            "TENCENT_ASR_SECRET_ID": "",
+            "TENCENT_ASR_SECRET_KEY": "",
+        },
+        clear=False,
+    ):
+        response = client.post(
+            "/v1/asr/session",
+            json={
+                "provider": "tencent",
+                "engine": "16k_zh",
+                "hotwords": [],
+                "client_session_id": "session-1",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "tencent_asr_credentials_not_configured"
