@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层和腾讯云 ASR session 骨架；正在推进可体验客户端壳接入真实语音 runner。
+项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层、腾讯云 ASR session 骨架、会话引导层和可体验客户端壳；正在推进 demo 壳接入真实语音链路。
 
 ## 已完成
 
@@ -35,21 +35,27 @@
 - PR #8：[Add microphone capture pipeline](https://github.com/zhubn123/maibi/pull/8)
   - 状态：已合并
   - 内容：新增客户端音频采集管线、sounddevice 配置骨架和 fake source 测试
+- PR #10：[Add demo client shell](https://github.com/zhubn123/maibi/pull/10)
+  - 状态：已合并
+  - 内容：新增可体验的 PySide6 托盘/浮窗模拟入口
 - PR #11：[Add Tencent ASR session skeleton](https://github.com/zhubn123/maibi/pull/11)
   - 状态：已合并
   - 内容：新增腾讯云实时 ASR WebSocket 签名 URL、session 骨架、transport dialer、事件解析和 session runner 测试
+- PR #12：[Add session bootstrap client](https://github.com/zhubn123/maibi/pull/12)
+  - 状态：已合并
+  - 内容：新增客户端会话引导层，服务端返回真实腾讯云签名 URL，并把签名配置统一收进本地配置文件
 
 ## 进行中
 
-- PR #10：Demo client shell
+- 真实语音链路接入
   - 状态：开发中
-  - 内容：新增可体验的 PySide6 托盘/浮窗模拟入口，并准备接入真实语音 runner
+  - 内容：把 demo 壳从 fake runner 切到真实 `sounddevice + websockets + bootstrap service`
 
 ## 下一步
 
-1. 完成并合并 PR #10。
-2. PR #12：实现文本上屏能力。
-3. 把 demo 壳从 fake runner 切到真实 `sounddevice + websockets`。
+1. 完成 demo 壳真实语音链路接入。
+2. PR #13：实现文本上屏能力。
+3. 完成全局快捷键、托盘交互和浮窗闭环。
 
 ## 执行规则
 
