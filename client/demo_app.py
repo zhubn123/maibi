@@ -3,24 +3,21 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QPushButton,
     QSystemTrayIcon,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from client.ui_state import (
-    ClientUiState,
     UiMode,
     apply_asr_event,
     apply_user_intent,
@@ -41,25 +38,29 @@ class DemoWindow(QMainWindow):
         self.state = reset_to_idle()
         self.tray: QSystemTrayIcon | None = None
 
-        self.setWindowTitle("Maibi Demo Shell")
-        self.setMinimumSize(620, 360)
+        self.setWindowTitle("Maibi")
+        self.setFixedSize(660, 168)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        self.status_pill = QLabel()
-        self.preview = QTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setMinimumHeight(120)
-        self.helper = QLabel()
-        self.helper.setWordWrap(True)
+        self.shell = QFrame()
+        self.shell.setObjectName("shell")
+        self.status_dot = QFrame()
+        self.status_dot.setObjectName("statusDot")
+        self.status_text = QLabel()
+        self.primary_text = QLabel()
+        self.primary_text.setWordWrap(True)
+        self.helper_text = QLabel()
+        self.helper_text.setWordWrap(True)
+        self.hint_text = QLabel("Esc 取消    Enter 确认    Copy 复制")
 
-        self.listen_button = QPushButton("Listening")
-        self.processing_button = QPushButton("Processing")
-        self.final_button = QPushButton("Final")
-        self.error_button = QPushButton("Error")
-        self.enter_button = QPushButton("Enter")
-        self.escape_button = QPushButton("Esc")
-        self.copy_button = QPushButton("Copy")
-        self.reset_button = QPushButton("Reset")
+        self.listen_button = QPushButton("开始")
+        self.processing_button = QPushButton("松开")
+        self.final_button = QPushButton("完成")
+        self.error_button = QPushButton("报错")
+        self.copy_button = QPushButton("复制")
+        self.reset_button = QPushButton("收起")
 
         self._build_ui()
         self._connect_signals()
@@ -67,46 +68,79 @@ class DemoWindow(QMainWindow):
         self._render()
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        header = QHBoxLayout()
-        title = QLabel("Maibi demo shell")
-        title.setStyleSheet("font-size: 20px; font-weight: 700;")
-        self.status_pill.setStyleSheet(
-            "padding: 6px 10px; border-radius: 999px; background: #1f2937; color: white;"
+        self.setStyleSheet(
+            """
+            QMainWindow {
+                background: transparent;
+            }
+            QFrame#shell {
+                background: #f7f8fa;
+                border: 1px solid #d7dce5;
+                border-radius: 10px;
+            }
+            QFrame#statusDot {
+                min-width: 10px;
+                max-width: 10px;
+                min-height: 10px;
+                max-height: 10px;
+                border-radius: 5px;
+                background: #64748b;
+            }
+            QLabel {
+                color: #111827;
+            }
+            QPushButton {
+                background: #ffffff;
+                border: 1px solid #d7dce5;
+                border-radius: 6px;
+                padding: 5px 10px;
+                min-height: 30px;
+            }
+            QPushButton:disabled {
+                color: #9ca3af;
+                background: #f3f4f6;
+            }
+            """
         )
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.status_pill)
-        layout.addLayout(header)
 
-        preview_frame = QFrame()
-        preview_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        preview_layout = QVBoxLayout(preview_frame)
-        preview_layout.setContentsMargins(12, 12, 12, 12)
-        preview_layout.addWidget(self.preview)
-        preview_layout.addWidget(self.helper)
-        layout.addWidget(preview_frame)
+        root = QWidget()
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.addWidget(self.shell)
 
-        controls = QGridLayout()
-        controls.setHorizontalSpacing(10)
-        controls.setVerticalSpacing(10)
-        buttons = [
+        shell_layout = QVBoxLayout(self.shell)
+        shell_layout.setContentsMargins(14, 12, 14, 12)
+        shell_layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(self.status_dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.status_text.setStyleSheet("font-size: 12px; color: #475569;")
+        top.addWidget(self.status_text, 0, Qt.AlignmentFlag.AlignVCenter)
+        top.addStretch(1)
+        self.hint_text.setStyleSheet("font-size: 12px; color: #6b7280;")
+        top.addWidget(self.hint_text, 0, Qt.AlignmentFlag.AlignVCenter)
+        shell_layout.addLayout(top)
+
+        self.primary_text.setStyleSheet("font-size: 22px; font-weight: 600; color: #111827;")
+        shell_layout.addWidget(self.primary_text)
+
+        self.helper_text.setStyleSheet("font-size: 13px; color: #64748b;")
+        shell_layout.addWidget(self.helper_text)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        for button in (
             self.listen_button,
             self.processing_button,
             self.final_button,
             self.error_button,
-            self.enter_button,
-            self.escape_button,
             self.copy_button,
             self.reset_button,
-        ]
-        for index, button in enumerate(buttons):
-            controls.addWidget(button, index // 4, index % 4)
-        layout.addLayout(controls)
+        ):
+            controls.addWidget(button)
+        controls.addStretch(1)
+        shell_layout.addLayout(controls)
 
         self.setCentralWidget(root)
 
@@ -115,8 +149,6 @@ class DemoWindow(QMainWindow):
         self.processing_button.clicked.connect(self._simulate_processing)
         self.final_button.clicked.connect(self._simulate_final)
         self.error_button.clicked.connect(self._simulate_error)
-        self.enter_button.clicked.connect(lambda: self._apply_key("Enter"))
-        self.escape_button.clicked.connect(lambda: self._apply_key("Esc"))
         self.copy_button.clicked.connect(self._copy_preview_text)
         self.reset_button.clicked.connect(self._reset)
 
@@ -126,14 +158,14 @@ class DemoWindow(QMainWindow):
 
         self.tray = QSystemTrayIcon(QIcon(), self)
         menu = QMenu(self)
-        show_action = QAction("Show window", self)
-        hide_action = QAction("Hide window", self)
-        quit_action = QAction("Quit", self)
+        show_action = QAction("显示悬浮条", self)
+        reset_action = QAction("回到就绪", self)
+        quit_action = QAction("退出", self)
         show_action.triggered.connect(self.show)
-        hide_action.triggered.connect(self.hide)
+        reset_action.triggered.connect(self._reset)
         quit_action.triggered.connect(QApplication.quit)
         menu.addAction(show_action)
-        menu.addAction(hide_action)
+        menu.addAction(reset_action)
         menu.addSeparator()
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
@@ -151,7 +183,7 @@ class DemoWindow(QMainWindow):
             return
         super().closeEvent(event)
 
-    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
             self._apply_key("Esc")
             return
@@ -164,11 +196,11 @@ class DemoWindow(QMainWindow):
         self.state = begin_listening()
         self.state = apply_asr_event(
             self.state,
-            AsrEvent(type=AsrEventType.PARTIAL, text="This is a live partial transcript."),
+            AsrEvent(type=AsrEventType.PARTIAL, text="正在识别你刚刚说的话"),
         )
         self.state = apply_asr_event(
             self.state,
-            AsrEvent(type=AsrEventType.STABLE, text="This is stable recognized text.", stable=True),
+            AsrEvent(type=AsrEventType.STABLE, text="这是当前稳定结果", stable=True),
         )
         self._render()
 
@@ -185,7 +217,7 @@ class DemoWindow(QMainWindow):
             self.state,
             AsrEvent(
                 type=AsrEventType.FINAL,
-                text="This is the final commit-ready text.",
+                text="这是最终上屏文本，已经可以确认输入。",
                 stable=True,
                 final=True,
             ),
@@ -213,17 +245,28 @@ class DemoWindow(QMainWindow):
     def _reset(self) -> None:
         self.state = reset_to_idle()
         self._render()
+        self.hide()
 
     def _render(self) -> None:
         tray_view = build_tray_view(self.state)
         floating_view = build_floating_window_view(self.state)
 
-        self.status_pill.setText(tray_view.status_text)
-        self.preview.setPlainText(floating_view.primary_text)
-        self.helper.setText(floating_view.helper_text)
-        self.enter_button.setEnabled(floating_view.can_confirm)
-        self.escape_button.setEnabled(floating_view.can_cancel)
+        self.status_text.setText(tray_view.tooltip)
+        self.primary_text.setText(floating_view.primary_text or "按开始模拟一次语音输入")
+        self.helper_text.setText(floating_view.helper_text)
         self.copy_button.setEnabled(floating_view.can_copy)
+
+        color = {
+            UiMode.IDLE: "#64748b",
+            UiMode.LISTENING: "#2563eb",
+            UiMode.PROCESSING: "#f59e0b",
+            UiMode.ERROR: "#dc2626",
+            UiMode.CANCELLED: "#6b7280",
+            UiMode.FINAL: "#16a34a",
+        }[self.state.mode]
+        self.status_dot.setStyleSheet(
+            f"background: {color}; min-width: 10px; max-width: 10px; min-height: 10px; max-height: 10px; border-radius: 5px;"
+        )
 
         if self.tray is not None:
             self.tray.setToolTip(tray_view.tooltip)
