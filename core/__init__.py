@@ -3,7 +3,7 @@
 from core.audio import AudioFrame, PcmAudioFormat, PcmFrameSplitter
 from core.asr import AsrEvent, AsrEventType, AsrProvider, AsrSession
 from core.commit import CommitResult, CommitStatus, TextCommitter
-from core.config import AsrSessionConfig, Hotword, UsageLimitConfig
+from core.config import AsrSessionConfig, Hotword, TencentAsrServiceConfig, UsageLimitConfig
 
 __all__ = [
     "AudioFrame",
@@ -17,6 +17,7 @@ __all__ = [
     "Hotword",
     "PcmAudioFormat",
     "PcmFrameSplitter",
+    "TencentAsrServiceConfig",
     "TextCommitter",
     "UsageLimitConfig",
     "__version__",

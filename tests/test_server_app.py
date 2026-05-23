@@ -17,14 +17,13 @@ def test_healthz_returns_ok() -> None:
 
 def test_create_asr_session_returns_short_lived_session() -> None:
     client = TestClient(create_app())
-    with patch.dict(
-        "os.environ",
-        {
-            "TENCENT_ASR_APPID": "123456",
-            "TENCENT_ASR_SECRET_ID": "secret-id",
-            "TENCENT_ASR_SECRET_KEY": "secret-key",
-        },
-        clear=False,
+    with patch(
+        "server.app._load_tencent_service_config",
+        return_value=__import__("core").TencentAsrServiceConfig(
+            appid="123456",
+            secret_id="secret-id",
+            secret_key="secret-key",
+        ),
     ):
         response = client.post(
             "/v1/asr/session",
@@ -79,14 +78,12 @@ def test_create_asr_session_rejects_invalid_hotword() -> None:
 
 def test_create_asr_session_requires_configured_credentials() -> None:
     client = TestClient(create_app())
-    with patch.dict(
-        "os.environ",
-        {
-            "TENCENT_ASR_APPID": "",
-            "TENCENT_ASR_SECRET_ID": "",
-            "TENCENT_ASR_SECRET_KEY": "",
-        },
-        clear=False,
+    with patch(
+        "server.app._load_tencent_service_config",
+        side_effect=__import__("fastapi").HTTPException(
+            status_code=503,
+            detail="tencent_asr_credentials_not_configured",
+        ),
     ):
         response = client.post(
             "/v1/asr/session",
@@ -100,3 +97,22 @@ def test_create_asr_session_requires_configured_credentials() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == "tencent_asr_credentials_not_configured"
+
+
+def test_tencent_service_config_uses_default_ttl() -> None:
+    from core import TencentAsrServiceConfig
+
+    config = TencentAsrServiceConfig.from_dict(
+        {
+            "tencent_asr": {
+                "appid": "123456",
+                "secret_id": "secret-id",
+                "secret_key": "secret-key",
+            }
+        },
+    )
+
+    assert config.appid == "123456"
+    assert config.secret_id == "secret-id"
+    assert config.secret_key == "secret-key"
+    assert config.session_ttl_seconds == 300

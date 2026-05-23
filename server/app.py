@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from core import AsrSessionConfig, Hotword
+from core import AsrSessionConfig, Hotword, TencentAsrServiceConfig
 from core.providers.tencent import TencentAsrCredentials, TencentAsrUrlBuilder
 
 SESSION_TTL_SECONDS = 300
 SUPPORTED_PROVIDERS = {"tencent"}
+LOCAL_CONFIG_PATH = Path("server/config.local.json")
 
 
 class AsrSessionRequest(BaseModel):
@@ -49,9 +50,14 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        credentials = _load_tencent_credentials()
-        builder = TencentAsrUrlBuilder(credentials, ttl_seconds=SESSION_TTL_SECONDS)
-        expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS)
+        service_config = _load_tencent_service_config()
+        credentials = TencentAsrCredentials(
+            appid=service_config.appid,
+            secret_id=service_config.secret_id,
+            secret_key=service_config.secret_key,
+        )
+        builder = TencentAsrUrlBuilder(credentials, ttl_seconds=service_config.session_ttl_seconds)
+        expires_at = datetime.now(UTC) + timedelta(seconds=service_config.session_ttl_seconds)
         return AsrSessionResponse(
             provider=config.provider,
             websocket_url=builder.build_url(config),
@@ -61,20 +67,19 @@ def create_app() -> FastAPI:
     return app
 
 
-def _load_tencent_credentials() -> TencentAsrCredentials:
-    appid = os.getenv("TENCENT_ASR_APPID", "").strip()
-    secret_id = os.getenv("TENCENT_ASR_SECRET_ID", "").strip()
-    secret_key = os.getenv("TENCENT_ASR_SECRET_KEY", "").strip()
-    if not appid or not secret_id or not secret_key:
+def _load_tencent_service_config() -> TencentAsrServiceConfig:
+    try:
+        return TencentAsrServiceConfig.from_file(LOCAL_CONFIG_PATH)
+    except ValueError:
         raise HTTPException(
             status_code=503,
             detail="tencent_asr_credentials_not_configured",
         )
-    return TencentAsrCredentials(
-        appid=appid,
-        secret_id=secret_id,
-        secret_key=secret_key,
-    )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="tencent_asr_credentials_not_configured",
+        )
 
 
 app = create_app()

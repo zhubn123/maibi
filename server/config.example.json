@@ -1,0 +1,8 @@
+{
+  "tencent_asr": {
+    "appid": "1234567890",
+    "secret_id": "your-secret-id",
+    "secret_key": "your-secret-key",
+    "session_ttl_seconds": 300
+  }
+}

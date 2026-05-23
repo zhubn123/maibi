@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from core.audio import PcmAudioFormat
 
@@ -73,4 +75,41 @@ class UsageLimitConfig:
             raise ValueError("daily_limit_minutes must be positive")
         if not 0 < self.warning_ratio <= 1:
             raise ValueError("warning_ratio must be in (0, 1]")
+
+
+@dataclass(frozen=True, slots=True)
+class TencentAsrServiceConfig:
+    appid: str
+    secret_id: str
+    secret_key: str
+    session_ttl_seconds: int = 300
+
+    def __post_init__(self) -> None:
+        if not self.appid:
+            raise ValueError("appid must not be empty")
+        if not self.secret_id:
+            raise ValueError("secret_id must not be empty")
+        if not self.secret_key:
+            raise ValueError("secret_key must not be empty")
+        if self.session_ttl_seconds <= 0:
+            raise ValueError("session_ttl_seconds must be positive")
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "TencentAsrServiceConfig":
+        tencent_asr = payload.get("tencent_asr")
+        if not isinstance(tencent_asr, dict):
+            raise ValueError("tencent_asr config section is required")
+        return cls(
+            appid=str(tencent_asr.get("appid", "")).strip(),
+            secret_id=str(tencent_asr.get("secret_id", "")).strip(),
+            secret_key=str(tencent_asr.get("secret_key", "")).strip(),
+            session_ttl_seconds=int(tencent_asr.get("session_ttl_seconds", 300)),
+        )
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "TencentAsrServiceConfig":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("config file must contain a JSON object")
+        return cls.from_dict(data)
 
