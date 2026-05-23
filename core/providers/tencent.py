@@ -88,6 +88,10 @@ class TencentWebSocketTransport(Protocol):
     async def close(self) -> None: ...
 
 
+class TencentWebSocketDialer(Protocol):
+    async def connect(self, url: str) -> TencentWebSocketTransport: ...
+
+
 @dataclass(slots=True)
 class TencentAsrSession(AsrSession):
     transport: TencentWebSocketTransport
@@ -109,15 +113,42 @@ class TencentAsrSession(AsrSession):
 @dataclass(frozen=True, slots=True)
 class TencentAsrProvider(AsrProvider):
     url_builder: TencentAsrUrlBuilder
+    dialer: TencentWebSocketDialer | None = None
 
     async def start_session(self, config: AsrSessionConfig) -> AsrSession:
-        raise RuntimeError(
-            "websocket dialing is not implemented yet; build the signed URL "
-            "and wire a transport in the next PR"
-        )
+        if self.dialer is None:
+            raise RuntimeError("websocket dialer is not configured")
+        url = self.build_session_url(config)
+        transport = await self.dialer.connect(url)
+        return TencentAsrSession(transport)
 
     def build_session_url(self, config: AsrSessionConfig, *, now: int | None = None) -> str:
         return self.url_builder.build_url(config, now=now)
+
+
+@dataclass(frozen=True, slots=True)
+class WebSocketsTencentTransport:
+    websocket: object
+
+    async def send(self, data: bytes) -> None:
+        await self.websocket.send(data)  # type: ignore[attr-defined]
+
+    async def recv(self) -> str:
+        message = await self.websocket.recv()  # type: ignore[attr-defined]
+        if isinstance(message, bytes):
+            return message.decode("utf-8")
+        return str(message)
+
+    async def close(self) -> None:
+        await self.websocket.close()  # type: ignore[attr-defined]
+
+
+class WebSocketsTencentDialer:
+    async def connect(self, url: str) -> TencentWebSocketTransport:
+        import websockets
+
+        websocket = await websockets.connect(url)
+        return WebSocketsTencentTransport(websocket)
 
 
 def format_hotword_list(hotwords: tuple[Hotword, ...]) -> str:

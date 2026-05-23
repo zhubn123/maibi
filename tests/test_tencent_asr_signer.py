@@ -8,6 +8,7 @@ from core.providers.tencent import (
     TencentAsrSession,
     TencentAsrCredentials,
     TencentAsrUrlBuilder,
+    WebSocketsTencentTransport,
     format_hotword_list,
     parse_asr_event,
     redact_signed_url,
@@ -125,6 +126,32 @@ class _FakeTransport:
         self.closed = True
 
 
+class _FakeDialer:
+    def __init__(self, transport: _FakeTransport) -> None:
+        self.transport = transport
+        self.urls: list[str] = []
+
+    async def connect(self, url: str):
+        self.urls.append(url)
+        return self.transport
+
+
+class _FakeWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+        self.messages: list[str | bytes] = []
+        self.closed = False
+
+    async def send(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    async def recv(self) -> str | bytes:
+        return self.messages.pop(0)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def test_tencent_asr_session_sends_audio_and_finish_marker() -> None:
     async def scenario() -> None:
         transport = _FakeTransport(
@@ -159,3 +186,45 @@ def test_tencent_provider_builds_session_url_without_dialing() -> None:
     url = provider.build_session_url(AsrSessionConfig(), now=1_700_000_000)
 
     assert url.startswith("wss://asr.cloud.tencent.com/asr/v2/123456?")
+
+
+def test_tencent_provider_start_session_uses_dialer() -> None:
+    transport = _FakeTransport()
+    dialer = _FakeDialer(transport)
+    provider = TencentAsrProvider(
+        TencentAsrUrlBuilder(
+            TencentAsrCredentials(
+                appid="123456",
+                secret_id="secret-id",
+                secret_key="secret-key",
+            )
+        ),
+        dialer=dialer,
+    )
+
+    async def scenario() -> None:
+        session = await provider.start_session(AsrSessionConfig())
+        assert isinstance(session, TencentAsrSession)
+        assert len(dialer.urls) == 1
+        assert dialer.urls[0].startswith("wss://asr.cloud.tencent.com/asr/v2/123456?")
+
+    asyncio.run(scenario())
+
+
+def test_websockets_transport_normalizes_text_and_bytes_messages() -> None:
+    fake = _FakeWebSocket()
+    fake.messages.extend([b'{"code":0}', '{"code":0}'])
+    transport = WebSocketsTencentTransport(fake)
+
+    async def scenario() -> None:
+        await transport.send(b"\x01\x02")
+        first = await transport.recv()
+        second = await transport.recv()
+        await transport.close()
+
+        assert fake.sent == [b"\x01\x02"]
+        assert first == '{"code":0}'
+        assert second == '{"code":0}'
+        assert fake.closed is True
+
+    asyncio.run(scenario())
