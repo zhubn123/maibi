@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
+client = [
+    "sounddevice>=0.5",
+]
 server = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
