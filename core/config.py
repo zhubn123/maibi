@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from core.audio import PcmAudioFormat
+
 MAX_HOTWORDS = 128
 MAX_HOTWORD_LENGTH = 64
 DEFAULT_HOTWORD_WEIGHT = 8
@@ -50,9 +52,15 @@ class AsrSessionConfig:
 
     @property
     def frame_size_bytes(self) -> int:
-        bytes_per_sample = self.bits_per_sample // 8
-        samples_per_frame = self.sample_rate_hz * self.frame_duration_ms // 1000
-        return samples_per_frame * bytes_per_sample * self.channels
+        return self.audio_format.frame_size_bytes(self.frame_duration_ms)
+
+    @property
+    def audio_format(self) -> PcmAudioFormat:
+        return PcmAudioFormat(
+            sample_rate_hz=self.sample_rate_hz,
+            bits_per_sample=self.bits_per_sample,
+            channels=self.channels,
+        )
 
 
 @dataclass(frozen=True, slots=True)
