@@ -55,6 +55,12 @@ uvicorn server.app:app --reload
 python -m pip install -e ".[client]"
 ```
 
+启动可体验客户端壳：
+
+```powershell
+python -m client.demo_app
+```
+
 ## 开发流程
 
 - 文档小修、错别字和说明性规范更新可以直接提交到 `main`。
