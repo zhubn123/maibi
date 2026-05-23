@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import os
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from core import AsrSessionConfig, Hotword
+from core.providers.tencent import TencentAsrCredentials, TencentAsrUrlBuilder
 
 SESSION_TTL_SECONDS = 300
 SUPPORTED_PROVIDERS = {"tencent"}
@@ -47,20 +49,31 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+        credentials = _load_tencent_credentials()
+        builder = TencentAsrUrlBuilder(credentials, ttl_seconds=SESSION_TTL_SECONDS)
         expires_at = datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS)
         return AsrSessionResponse(
             provider=config.provider,
-            websocket_url=_placeholder_websocket_url(config),
+            websocket_url=builder.build_url(config),
             expires_at=expires_at,
         )
 
     return app
 
 
-def _placeholder_websocket_url(config: AsrSessionConfig) -> str:
-    return (
-        "wss://asr.invalid.example/session"
-        f"?provider={config.provider}&engine={config.engine}"
+def _load_tencent_credentials() -> TencentAsrCredentials:
+    appid = os.getenv("TENCENT_ASR_APPID", "").strip()
+    secret_id = os.getenv("TENCENT_ASR_SECRET_ID", "").strip()
+    secret_key = os.getenv("TENCENT_ASR_SECRET_KEY", "").strip()
+    if not appid or not secret_id or not secret_key:
+        raise HTTPException(
+            status_code=503,
+            detail="tencent_asr_credentials_not_configured",
+        )
+    return TencentAsrCredentials(
+        appid=appid,
+        secret_id=secret_id,
+        secret_key=secret_key,
     )
 
 
