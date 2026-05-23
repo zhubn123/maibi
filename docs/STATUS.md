@@ -10,7 +10,7 @@
 
 - PR #1：[Add project planning docs](https://github.com/zhubn123/maibi/pull/1)
   - 状态：已合并
-  - 内容：新增 `PLAN.md`、`PR_GUIDELINES.md`、`agents.md` 和 `.gitignore`
+  - 内容：新增项目计划、PR 规范、Agent 工作指南和 `.gitignore`
 - 直接提交：[Add collaboration workflow guidelines](https://github.com/zhubn123/maibi/commit/ff4faa38edcc78ca002664ceaa5bcf1f5af83756)
   - 状态：已进入 `main`
   - 内容：补充多 Agent 协作规范和小改动免 PR 规则
@@ -39,3 +39,11 @@
 - 文档小修、状态更新、错别字和说明性规范更新可以直接提交到 `main`。
 - 多 Agent 并行时，子 Agent 不默认运行全量编译、全量测试、服务或打包命令；最终验证由主 Agent / 主线程统一判断。
 
+## 文档位置
+
+- `README.md`：仓库入口和开发入口。
+- `agents.md`：Agent 工作指南，保留在根目录便于工具自动发现。
+- `docs/README.md`：文档索引。
+- `docs/PLAN.md`：产品与技术计划。
+- `docs/PR_GUIDELINES.md`：PR 提交规范。
+- `docs/STATUS.md`：项目进度。

@@ -2,7 +2,7 @@
 
 麦笔是一款面向 Windows 10/11 桌面的中文语音输入工具。首版采用系统托盘应用、浮窗预览和轻量签名服务，不注册为 Windows 系统 IME。
 
-当前仓库处于项目骨架阶段，产品边界和技术计划见 `PLAN.md`，PR 流程见 `PR_GUIDELINES.md`，Agent 协作规则见 `agents.md`。
+当前仓库处于项目骨架阶段，产品边界和技术计划见 `docs/PLAN.md`，PR 流程见 `docs/PR_GUIDELINES.md`，项目进度见 `docs/STATUS.md`，Agent 协作规则见 `agents.md`。
 
 ## 目录结构
 
@@ -11,6 +11,14 @@
 - `core/`：客户端与服务端共享的核心类型、接口和工具。
 - `tests/`：自动化测试。
 - `docs/`：产品、设计、部署和验收文档。
+
+## 文档入口
+
+- `docs/README.md`：文档索引。
+- `docs/PLAN.md`：产品与技术计划。
+- `docs/PR_GUIDELINES.md`：PR 提交规范。
+- `docs/STATUS.md`：项目进度。
+- `agents.md`：Agent 工作指南。
 
 ## 开发环境
 

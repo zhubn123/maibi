@@ -1,6 +1,6 @@
 # 麦笔 Agents 工作指南
 
-本文件面向在本仓库中工作的 coding agent。实现前先阅读 `PLAN.md` 和 `PR_GUIDELINES.md`，并以其中的产品边界、技术方案和 PR 约束为准。
+本文件面向在本仓库中工作的 coding agent。实现前先阅读 `docs/PLAN.md`、`docs/PR_GUIDELINES.md` 和 `docs/STATUS.md`，并以其中的产品边界、技术方案、项目进度和 PR 约束为准。
 
 ## 项目目标
 
@@ -96,7 +96,7 @@ class AsrEvent:
 
 ## 腾讯云 ASR 默认值
 
-首版默认实现腾讯云实时 ASR WebSocket，默认参数参考 `PLAN.md`：
+首版默认实现腾讯云实时 ASR WebSocket，默认参数参考 `docs/PLAN.md`：
 
 - 16kHz、16-bit、mono、PCM
 - 每 200ms 发送一帧
@@ -148,7 +148,7 @@ class AsrEvent:
 
 - 保持每次变更范围小，一个 PR 只做一件事。
 - 不做无关重构，不引入与首版目标无关的能力。
-- 修改既有行为前，先确认是否影响 `PLAN.md` 中的关键交互。
+- 修改既有行为前，先确认是否影响 `docs/PLAN.md` 中的关键交互。
 - 新代码优先放入清晰的模块边界，不把 UI、ASR、配置、用量统计和文本提交逻辑混在一起。
 - 需要 mock 外部服务时，优先使用本地 mock WebSocket 或测试替身，避免测试依赖真实云服务。
 - 不在日志、异常、测试快照或 fixture 中写入真实 Secret、完整签名 URL、音频或用户转写文本。
@@ -173,4 +173,4 @@ class AsrEvent:
 
 不得合并空描述 PR、描述与代码严重不符的 PR、包含多个无关功能的 PR、遗漏依赖说明的 PR，或合并后主分支无法启动和复现演示效果的 PR。
 
-推荐拆分顺序参考 `PR_GUIDELINES.md`，优先从项目骨架、README、共享核心接口、签名服务最小 API 和 mock ASR 集成测试开始。
+推荐拆分顺序参考 `docs/PR_GUIDELINES.md`，优先从项目骨架、README、共享核心接口、签名服务最小 API 和 mock ASR 集成测试开始。推进进度必须同步更新 `docs/STATUS.md`。
