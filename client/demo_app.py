@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from client.session_bootstrap import SessionBootstrapClient
-from client.session_runner import run_tencent_stream_session
-from client.audio_capture import InMemoryAudioSource
+from client.session_runner import run_bootstrapped_tencent_stream_session
+from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
 from client.ui_state import (
     UiMode,
     apply_user_intent,
@@ -30,12 +30,7 @@ from client.ui_state import (
     reset_to_idle,
 )
 from core import AsrSessionConfig, Hotword
-from core.providers.tencent import (
-    TencentAsrProvider,
-    TencentAsrSession,
-    WebSocketsTencentDialer,
-    WebSocketsTencentTransport,
-)
+from core.providers.tencent import WebSocketsTencentDialer
 
 
 class DemoWindow(QMainWindow):
@@ -61,7 +56,7 @@ class DemoWindow(QMainWindow):
         self.helper_text.setWordWrap(True)
         self.hint_text = QLabel("Esc 取消    Enter 确认    Copy 复制")
 
-        self.run_button = QPushButton("连接本地签名服务")
+        self.run_button = QPushButton("开始真实语音")
         self.error_button = QPushButton("模拟错误")
         self.copy_button = QPushButton("复制")
         self.reset_button = QPushButton("收起")
@@ -202,15 +197,19 @@ class DemoWindow(QMainWindow):
             )
             bootstrap = SessionBootstrapClient()
             session_info = await bootstrap.create_tencent_session(config)
-            provider = TencentAsrProvider(
-                url_builder=_StaticTencentUrlBuilder(session_info.websocket_url),
-                dialer=WebSocketsTencentDialer(),
+            source = SoundDeviceAudioSource(
+                SoundDeviceCaptureConfig(
+                    sample_rate_hz=config.sample_rate_hz,
+                    channels=config.channels,
+                    block_duration_ms=config.frame_duration_ms,
+                    max_chunks=8,
+                )
             )
-            frame = b"\x00" * config.frame_size_bytes
-            result = await run_tencent_stream_session(
-                provider,
+            result = await run_bootstrapped_tencent_stream_session(
+                websocket_url=session_info.websocket_url,
                 config,
-                InMemoryAudioSource.from_chunks([frame, frame]),
+                source,
+                dialer=WebSocketsTencentDialer(),
             )
             self.state = result.final_state
 
@@ -255,7 +254,7 @@ class DemoWindow(QMainWindow):
         floating_view = build_floating_window_view(self.state)
 
         self.status_text.setText(tray_view.tooltip)
-        self.primary_text.setText(floating_view.primary_text or "按开始一次演示查看语音输入流程")
+        self.primary_text.setText(floating_view.primary_text or "按开始真实语音，录一小段后返回结果")
         self.helper_text.setText(floating_view.helper_text)
         self.copy_button.setEnabled(floating_view.can_copy)
 
@@ -288,11 +287,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-class _StaticTencentUrlBuilder:
-    def __init__(self, websocket_url: str) -> None:
-        self.websocket_url = websocket_url
-
-    def build_url(self, _config: AsrSessionConfig, *, now: int | None = None) -> str:
-        return self.websocket_url

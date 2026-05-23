@@ -48,6 +48,7 @@ class SoundDeviceCaptureConfig:
     channels: int = 1
     dtype: str = "int16"
     block_duration_ms: int = 200
+    max_chunks: int | None = None
 
     @property
     def audio_format(self) -> PcmAudioFormat:
@@ -83,11 +84,15 @@ class SoundDeviceAudioSource:
             blocksize=self.config.block_size_samples,
             callback=callback,
         ):
+            seen_chunks = 0
             while True:
                 chunk = chunks.get()
                 if chunk is None:
                     return
                 yield chunk
+                seen_chunks += 1
+                if self.config.max_chunks is not None and seen_chunks >= self.config.max_chunks:
+                    return
 
 
 @dataclass(slots=True)

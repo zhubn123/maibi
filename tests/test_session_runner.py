@@ -4,6 +4,7 @@ import json
 from client.audio_capture import InMemoryAudioSource
 from client.session_runner import (
     cancel_tencent_demo_session,
+    run_bootstrapped_tencent_stream_session,
     run_tencent_demo_session,
     run_tencent_stream_session,
 )
@@ -96,3 +97,21 @@ def test_run_tencent_stream_session_accepts_audio_source_protocol() -> None:
     assert result.sent_frames == 1
     assert result.final_state.final_text == "稳定结果"
     assert transport.sent[0] == b"\x00" * config.frame_size_bytes
+
+
+def test_run_bootstrapped_tencent_stream_session_uses_supplied_url() -> None:
+    provider, transport, dialer = _provider_with_transport(
+        [json.dumps({"code": 0, "result": {"voice_text_str": "最终文本", "slice_type": 2, "final": 1}})]
+    )
+    source = InMemoryAudioSource.from_chunks([b"\x00" * AsrSessionConfig().frame_size_bytes])
+    result = asyncio.run(
+        run_bootstrapped_tencent_stream_session(
+            websocket_url="wss://bootstrap.example/session",
+            config=AsrSessionConfig(),
+            source=source,
+            dialer=dialer,
+        )
+    )
+
+    assert result.final_state.final_text == "最终文本"
+    assert dialer.urls == ["wss://bootstrap.example/session"]
