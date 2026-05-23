@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from client.session_runner import run_tencent_demo_session
+from client.session_bootstrap import SessionBootstrapClient
+from client.session_runner import run_tencent_stream_session
+from client.audio_capture import InMemoryAudioSource
 from client.ui_state import (
     UiMode,
     apply_user_intent,
@@ -29,9 +31,10 @@ from client.ui_state import (
 )
 from core import AsrSessionConfig, Hotword
 from core.providers.tencent import (
-    TencentAsrCredentials,
     TencentAsrProvider,
-    TencentAsrUrlBuilder,
+    TencentAsrSession,
+    WebSocketsTencentDialer,
+    WebSocketsTencentTransport,
 )
 
 
@@ -58,7 +61,7 @@ class DemoWindow(QMainWindow):
         self.helper_text.setWordWrap(True)
         self.hint_text = QLabel("Esc 取消    Enter 确认    Copy 复制")
 
-        self.run_button = QPushButton("开始一次演示")
+        self.run_button = QPushButton("连接本地签名服务")
         self.error_button = QPushButton("模拟错误")
         self.copy_button = QPushButton("复制")
         self.reset_button = QPushButton("收起")
@@ -191,72 +194,36 @@ class DemoWindow(QMainWindow):
 
     def _run_demo_session(self) -> None:
         import asyncio
-        import json
-
-        class _FakeTransport:
-            def __init__(self, messages: list[str]) -> None:
-                self.messages = list(messages)
-                self.sent: list[bytes] = []
-                self.closed = False
-
-            async def send(self, data: bytes) -> None:
-                self.sent.append(data)
-
-            async def recv(self) -> str:
-                return self.messages.pop(0)
-
-            async def close(self) -> None:
-                self.closed = True
-
-        class _FakeDialer:
-            def __init__(self, transport: _FakeTransport) -> None:
-                self.transport = transport
-
-            async def connect(self, _url: str):
-                return self.transport
 
         async def scenario() -> None:
-            provider = TencentAsrProvider(
-                TencentAsrUrlBuilder(
-                    TencentAsrCredentials(
-                        appid="123456",
-                        secret_id="demo-secret-id",
-                        secret_key="demo-secret-key",
-                    )
-                ),
-                dialer=_FakeDialer(
-                    _FakeTransport(
-                        [
-                            json.dumps(
-                                {
-                                    "code": 0,
-                                    "result": {
-                                        "voice_text_str": "这是当前稳定结果",
-                                        "slice_type": 2,
-                                        "final": 0,
-                                    },
-                                }
-                            ),
-                            json.dumps(
-                                {
-                                    "code": 0,
-                                    "result": {
-                                        "voice_text_str": "这是最终上屏文本，已经可以确认输入。",
-                                        "slice_type": 2,
-                                        "final": 1,
-                                    },
-                                }
-                            ),
-                        ]
-                    )
-                ),
+            config = AsrSessionConfig(
+                hotwords=(Hotword("麦笔"),),
+                client_session_id="maibi-demo-shell",
             )
-            config = AsrSessionConfig(hotwords=(Hotword("麦笔"),))
+            bootstrap = SessionBootstrapClient()
+            session_info = await bootstrap.create_tencent_session(config)
+            provider = TencentAsrProvider(
+                url_builder=_StaticTencentUrlBuilder(session_info.websocket_url),
+                dialer=WebSocketsTencentDialer(),
+            )
             frame = b"\x00" * config.frame_size_bytes
-            result = await run_tencent_demo_session(provider, config, [frame, frame])
+            result = await run_tencent_stream_session(
+                provider,
+                config,
+                InMemoryAudioSource.from_chunks([frame, frame]),
+            )
             self.state = result.final_state
 
-        asyncio.run(scenario())
+        try:
+            asyncio.run(scenario())
+        except Exception as exc:
+            self.state = reset_to_idle()
+            self.state = self.state.__class__(
+                mode=UiMode.ERROR,
+                partial_text="",
+                error_code="bootstrap_or_ws_failed",
+                error_message=str(exc),
+            )
         self._render()
 
     def _simulate_error(self) -> None:
@@ -321,3 +288,11 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+class _StaticTencentUrlBuilder:
+    def __init__(self, websocket_url: str) -> None:
+        self.websocket_url = websocket_url
+
+    def build_url(self, _config: AsrSessionConfig, *, now: int | None = None) -> str:
+        return self.websocket_url
