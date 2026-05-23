@@ -3,11 +3,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import time
 from dataclasses import dataclass
+from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from core import AsrSessionConfig, Hotword
+from core import AsrEvent, AsrEventType, AsrProvider, AsrSession, AsrSessionConfig, Hotword
 
 TENCENT_ASR_HOST = "asr.cloud.tencent.com"
 TENCENT_ASR_PATH = "/asr/v2/{appid}"
@@ -80,8 +82,71 @@ class TencentAsrUrlBuilder:
         return params
 
 
+class TencentWebSocketTransport(Protocol):
+    async def send(self, data: bytes) -> None: ...
+    async def recv(self) -> str: ...
+    async def close(self) -> None: ...
+
+
+@dataclass(slots=True)
+class TencentAsrSession(AsrSession):
+    transport: TencentWebSocketTransport
+
+    async def send_audio(self, frame: bytes) -> None:
+        await self.transport.send(frame)
+
+    async def finish(self) -> None:
+        await self.transport.send(json.dumps({"type": "end"}).encode("utf-8"))
+
+    async def cancel(self) -> None:
+        await self.transport.close()
+
+    async def receive_event(self) -> AsrEvent:
+        message = await self.transport.recv()
+        return parse_asr_event(message)
+
+
+@dataclass(frozen=True, slots=True)
+class TencentAsrProvider(AsrProvider):
+    url_builder: TencentAsrUrlBuilder
+
+    async def start_session(self, config: AsrSessionConfig) -> AsrSession:
+        raise RuntimeError(
+            "websocket dialing is not implemented yet; build the signed URL "
+            "and wire a transport in the next PR"
+        )
+
+    def build_session_url(self, config: AsrSessionConfig, *, now: int | None = None) -> str:
+        return self.url_builder.build_url(config, now=now)
+
+
 def format_hotword_list(hotwords: tuple[Hotword, ...]) -> str:
     return ",".join(f"{hotword.text}|{hotword.weight}" for hotword in hotwords)
+
+
+def parse_asr_event(message: str) -> AsrEvent:
+    payload = json.loads(message)
+    code = int(payload.get("code", 0))
+    if code != 0:
+        return AsrEvent(
+            type=AsrEventType.ERROR,
+            text=str(payload.get("message", "")),
+            error_code=str(code),
+        )
+
+    result = payload.get("result", {})
+    text = str(result.get("voice_text_str", ""))
+    final = bool(result.get("final", 0))
+    stable = final or result.get("slice_type") == 2
+    event_type = (
+        AsrEventType.FINAL if final else AsrEventType.STABLE if stable else AsrEventType.PARTIAL
+    )
+    return AsrEvent(
+        type=event_type,
+        text=text,
+        stable=stable,
+        final=final,
+    )
 
 
 def redact_signed_url(url: str) -> str:
