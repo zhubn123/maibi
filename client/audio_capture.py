@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -67,7 +67,32 @@ class SoundDeviceAudioSource:
         self.config = config or SoundDeviceCaptureConfig()
 
     def chunks(self) -> Iterator[bytes]:
-        raise RuntimeError(
-            "sounddevice capture is not implemented yet; use InMemoryAudioSource "
-            "for tests and wait for the device-backed capture PR"
-        )
+        import queue
+
+        import sounddevice
+
+        chunks: queue.Queue[bytes | None] = queue.Queue()
+
+        def callback(indata, _frames, _time, _status) -> None:  # type: ignore[no-untyped-def]
+            chunks.put(bytes(indata))
+
+        with sounddevice.RawInputStream(
+            samplerate=self.config.sample_rate_hz,
+            channels=self.config.channels,
+            dtype=self.config.dtype,
+            blocksize=self.config.block_size_samples,
+            callback=callback,
+        ):
+            while True:
+                chunk = chunks.get()
+                if chunk is None:
+                    return
+                yield chunk
+
+
+@dataclass(slots=True)
+class CallbackAudioSource:
+    produce_chunks: Callable[[], Iterator[bytes]]
+
+    def chunks(self) -> Iterator[bytes]:
+        yield from self.produce_chunks()
