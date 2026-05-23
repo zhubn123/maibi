@@ -207,8 +207,8 @@ class DemoWindow(QMainWindow):
             )
             result = await run_bootstrapped_tencent_stream_session(
                 websocket_url=session_info.websocket_url,
-                config,
-                source,
+                config=config,
+                source=source,
                 dialer=WebSocketsTencentDialer(),
             )
             self.state = result.final_state
