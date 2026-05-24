@@ -106,11 +106,11 @@ class SoundDeviceAudioSource:
                 if chunk is None:
                     return
                 last_audio_at = time.monotonic()
+                if self.stop_event is not None and self.stop_event.is_set():
+                    return
                 yield chunk
                 seen_chunks += 1
                 if self.config.max_chunks is not None and seen_chunks >= self.config.max_chunks:
-                    return
-                if self.stop_event is not None and self.stop_event.is_set():
                     return
 
 

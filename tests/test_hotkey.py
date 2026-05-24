@@ -45,14 +45,15 @@ def test_enter_and_escape_only_emit_when_active() -> None:
     state = HotkeyState(active_getter=lambda: active)
 
     assert state.handle(HotkeyEvent(HotkeyKey.ENTER, True)) == HotkeyDecision()
-    active = True
     assert state.handle(HotkeyEvent(HotkeyKey.ENTER, False)) == HotkeyDecision()
-    assert state.handle(HotkeyEvent(HotkeyKey.ENTER, True)) == HotkeyDecision(
+    active = True
+    assert state.handle(HotkeyEvent(HotkeyKey.ENTER, True)) == HotkeyDecision(suppress=True)
+    assert state.handle(HotkeyEvent(HotkeyKey.ENTER, False)) == HotkeyDecision(
         action=HotkeyAction.CONFIRM,
         suppress=True,
     )
-    assert state.handle(HotkeyEvent(HotkeyKey.ENTER, False)) == HotkeyDecision()
-    assert state.handle(HotkeyEvent(HotkeyKey.ESCAPE, True)) == HotkeyDecision(
+    assert state.handle(HotkeyEvent(HotkeyKey.ESCAPE, True)) == HotkeyDecision(suppress=True)
+    assert state.handle(HotkeyEvent(HotkeyKey.ESCAPE, False)) == HotkeyDecision(
         action=HotkeyAction.CANCEL,
         suppress=True,
     )

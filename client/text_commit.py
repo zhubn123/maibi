@@ -50,6 +50,7 @@ class ClipboardPasteCommitter:
             clipboard_changed = True
             if self.targeter is not None:
                 self.targeter.restore_foreground(target_handle)
+                time.sleep(0.03)
             self.keyboard.paste()
         except Exception as exc:
             if clipboard_changed:

@@ -1,9 +1,11 @@
 from client.audio_capture import (
     AudioCapturePipeline,
     InMemoryAudioSource,
+    SoundDeviceAudioSource,
     SoundDeviceCaptureConfig,
 )
 from core import PcmAudioFormat
+import threading
 
 
 def test_capture_pipeline_splits_source_chunks_into_200ms_frames() -> None:
@@ -48,3 +50,33 @@ def test_sounddevice_config_matches_plan_defaults() -> None:
     assert config.block_duration_ms == 200
     assert config.block_size_samples == 3_200
     assert config.audio_format.frame_size_bytes(200) == 6_400
+
+
+def test_sounddevice_source_stops_before_yielding_buffer_when_stop_requested(monkeypatch) -> None:
+    chunks = [b"a", b"b"]
+    stop_event = threading.Event()
+
+    class _FakeStream:
+        def __init__(self, **kwargs) -> None:
+            self.callback = kwargs["callback"]
+
+        def __enter__(self):
+            for chunk in chunks:
+                self.callback(chunk, 0, None, None)
+            stop_event.set()
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    class _FakeSoundDevice:
+        RawInputStream = _FakeStream
+
+    monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+    source = SoundDeviceAudioSource(
+        SoundDeviceCaptureConfig(max_chunks=None),
+        stop_event=stop_event,
+    )
+
+    assert list(source.chunks()) == []

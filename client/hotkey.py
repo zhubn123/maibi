@@ -55,10 +55,8 @@ class HotkeyState:
         return self._handle_released(event.key)
 
     def _handle_pressed(self, key: HotkeyKey) -> HotkeyDecision:
-        if key == HotkeyKey.ENTER and self.active_getter():
-            return HotkeyDecision(action=HotkeyAction.CONFIRM, suppress=True)
-        if key == HotkeyKey.ESCAPE and self.active_getter():
-            return HotkeyDecision(action=HotkeyAction.CANCEL, suppress=True)
+        if key in {HotkeyKey.ENTER, HotkeyKey.ESCAPE} and self.active_getter():
+            return HotkeyDecision(suppress=True)
         if (
             key == HotkeyKey.SPACE
             and HotkeyKey.CONTROL in self._pressed_keys
@@ -72,6 +70,10 @@ class HotkeyState:
         return HotkeyDecision()
 
     def _handle_released(self, key: HotkeyKey) -> HotkeyDecision:
+        if key == HotkeyKey.ENTER and self.active_getter():
+            return HotkeyDecision(action=HotkeyAction.CONFIRM, suppress=True)
+        if key == HotkeyKey.ESCAPE and self.active_getter():
+            return HotkeyDecision(action=HotkeyAction.CANCEL, suppress=True)
         if key == HotkeyKey.SPACE and self._recording_hotkey_down:
             self._recording_hotkey_down = False
             return HotkeyDecision(action=HotkeyAction.STOP_RECORDING, suppress=True)
