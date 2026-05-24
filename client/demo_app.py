@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+import uuid
+import traceback
+import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,6 +26,9 @@ from client.session_runner import run_bootstrapped_tencent_stream_session
 from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
 from client.ui_state import (
     UiMode,
+    apply_asr_event,
+    begin_listening,
+    begin_processing,
     apply_user_intent,
     build_floating_window_view,
     build_tray_view,
@@ -40,12 +46,68 @@ class DragState:
     offset_y: int
 
 
+class SessionWorker(QThread):
+    event_received = Signal(object)
+    processing_started = Signal()
+    session_finished = Signal()
+    session_failed = Signal(str)
+    session_cancelled = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._stop_requested = threading.Event()
+
+    def request_stop(self) -> None:
+        self._stop_requested.set()
+
+    def run(self) -> None:
+        import asyncio
+
+        async def scenario():
+            config = AsrSessionConfig(
+                hotwords=(Hotword("麦笔"),),
+                client_session_id=f"maibi-demo-{uuid.uuid4().hex}",
+            )
+            bootstrap = SessionBootstrapClient()
+            session_info = await bootstrap.create_tencent_session(config)
+            source = SoundDeviceAudioSource(
+                SoundDeviceCaptureConfig(
+                    sample_rate_hz=config.sample_rate_hz,
+                    channels=config.channels,
+                    block_duration_ms=config.frame_duration_ms,
+                    max_chunks=None,
+                )
+                ,
+                stop_event=self._stop_requested,
+            )
+            result = await run_bootstrapped_tencent_stream_session(
+                websocket_url=session_info.websocket_url,
+                config=config,
+                source=source,
+                dialer=WebSocketsTencentDialer(),
+                on_event=lambda event: self.event_received.emit(event),
+                on_processing=lambda: self.processing_started.emit(),
+            )
+            if self._stop_requested.is_set() and result.sent_frames == 0:
+                self.session_cancelled.emit()
+                return
+            self.session_finished.emit()
+
+        try:
+            asyncio.run(scenario())
+        except Exception as exc:  # pragma: no cover - UI-thread handoff
+            message = str(exc).strip() or traceback.format_exc(limit=1)
+            self.session_failed.emit(message)
+            return
+
+
 class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = reset_to_idle()
         self.tray: QSystemTrayIcon | None = None
         self.drag_state: DragState | None = None
+        self.worker: SessionWorker | None = None
 
         self.setWindowTitle("Maibi")
         self.setFixedSize(660, 168)
@@ -63,7 +125,8 @@ class DemoWindow(QMainWindow):
         self.helper_text.setWordWrap(True)
         self.hint_text = QLabel("Esc 取消    Enter 确认    Copy 复制")
 
-        self.run_button = QPushButton("开始真实语音")
+        self.run_button = QPushButton("开始录音")
+        self.finish_button = QPushButton("结束语音")
         self.error_button = QPushButton("模拟错误")
         self.copy_button = QPushButton("复制")
         self.reset_button = QPushButton("收起")
@@ -138,6 +201,7 @@ class DemoWindow(QMainWindow):
         controls.setSpacing(8)
         for button in (
             self.run_button,
+            self.finish_button,
             self.error_button,
             self.copy_button,
             self.reset_button,
@@ -149,7 +213,8 @@ class DemoWindow(QMainWindow):
         self.setCentralWidget(root)
 
     def _connect_signals(self) -> None:
-        self.run_button.clicked.connect(self._run_demo_session)
+        self.run_button.clicked.connect(self._start_demo_session)
+        self.finish_button.clicked.connect(self._finish_demo_session)
         self.error_button.clicked.connect(self._simulate_error)
         self.copy_button.clicked.connect(self._copy_preview_text)
         self.reset_button.clicked.connect(self._reset)
@@ -224,42 +289,53 @@ class DemoWindow(QMainWindow):
             return
         super().mouseReleaseEvent(event)
 
-    def _run_demo_session(self) -> None:
-        import asyncio
+    def _start_demo_session(self) -> None:
+        if self.worker is not None and self.worker.isRunning():
+            return
 
-        async def scenario() -> None:
-            config = AsrSessionConfig(
-                hotwords=(Hotword("麦笔"),),
-                client_session_id="maibi-demo-shell",
-            )
-            bootstrap = SessionBootstrapClient()
-            session_info = await bootstrap.create_tencent_session(config)
-            source = SoundDeviceAudioSource(
-                SoundDeviceCaptureConfig(
-                    sample_rate_hz=config.sample_rate_hz,
-                    channels=config.channels,
-                    block_duration_ms=config.frame_duration_ms,
-                    max_chunks=8,
-                )
-            )
-            result = await run_bootstrapped_tencent_stream_session(
-                websocket_url=session_info.websocket_url,
-                config=config,
-                source=source,
-                dialer=WebSocketsTencentDialer(),
-            )
-            self.state = result.final_state
+        self.state = begin_listening()
+        self._render()
+        self.worker = SessionWorker(self)
+        self.worker.processing_started.connect(self._on_processing_started)
+        self.worker.event_received.connect(self._on_event_received)
+        self.worker.session_finished.connect(self._on_session_finished)
+        self.worker.session_failed.connect(self._on_session_failed)
+        self.worker.session_cancelled.connect(self._on_session_cancelled)
+        self.worker.start()
 
-        try:
-            asyncio.run(scenario())
-        except Exception as exc:
-            self.state = reset_to_idle()
-            self.state = self.state.__class__(
-                mode=UiMode.ERROR,
-                partial_text="",
-                error_code="bootstrap_or_ws_failed",
-                error_message=str(exc),
-            )
+    def _finish_demo_session(self) -> None:
+        if self.worker is None or not self.worker.isRunning():
+            return
+        self.worker.request_stop()
+        self.state = begin_processing(self.state)
+        self._render()
+
+    def _on_processing_started(self) -> None:
+        self.state = begin_processing(self.state)
+        self._render()
+
+    def _on_event_received(self, event) -> None:
+        self.state = apply_asr_event(self.state, event)
+        self._render()
+
+    def _on_session_finished(self) -> None:
+        self.worker = None
+        self._render()
+
+    def _on_session_failed(self, message: str) -> None:
+        self.state = reset_to_idle()
+        self.state = self.state.__class__(
+            mode=UiMode.ERROR,
+            partial_text="",
+            error_code="bootstrap_or_ws_failed",
+            error_message=message,
+        )
+        self.worker = None
+        self._render()
+
+    def _on_session_cancelled(self) -> None:
+        self.state = reset_to_idle()
+        self.worker = None
         self._render()
 
     def _simulate_error(self) -> None:
@@ -291,8 +367,10 @@ class DemoWindow(QMainWindow):
         floating_view = build_floating_window_view(self.state)
 
         self.status_text.setText(tray_view.tooltip)
-        self.primary_text.setText(floating_view.primary_text or "按开始真实语音，录一小段后返回结果")
+        self.primary_text.setText(floating_view.primary_text or "按开始录音，说完后点结束语音")
         self.helper_text.setText(floating_view.helper_text)
+        self.run_button.setEnabled(self.worker is None)
+        self.finish_button.setEnabled(self.worker is not None)
         self.copy_button.setEnabled(floating_view.can_copy)
 
         color = {

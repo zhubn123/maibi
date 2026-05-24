@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+import threading
+import time
 from typing import Protocol
 
 from core import AudioFrame, PcmAudioFormat, PcmFrameSplitter
@@ -64,8 +66,14 @@ class SoundDeviceCaptureConfig:
 
 
 class SoundDeviceAudioSource:
-    def __init__(self, config: SoundDeviceCaptureConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: SoundDeviceCaptureConfig | None = None,
+        *,
+        stop_event: threading.Event | None = None,
+    ) -> None:
         self.config = config or SoundDeviceCaptureConfig()
+        self.stop_event = stop_event
 
     def chunks(self) -> Iterator[bytes]:
         import queue
@@ -73,6 +81,7 @@ class SoundDeviceAudioSource:
         import sounddevice
 
         chunks: queue.Queue[bytes | None] = queue.Queue()
+        last_audio_at = time.monotonic()
 
         def callback(indata, _frames, _time, _status) -> None:  # type: ignore[no-untyped-def]
             chunks.put(bytes(indata))
@@ -86,12 +95,22 @@ class SoundDeviceAudioSource:
         ):
             seen_chunks = 0
             while True:
-                chunk = chunks.get()
+                try:
+                    chunk = chunks.get(timeout=0.1)
+                except queue.Empty as exc:
+                    if self.stop_event is not None and self.stop_event.is_set():
+                        return
+                    if time.monotonic() - last_audio_at >= 3.0:
+                        raise RuntimeError("microphone_did_not_produce_audio") from exc
+                    continue
                 if chunk is None:
                     return
+                last_audio_at = time.monotonic()
                 yield chunk
                 seen_chunks += 1
                 if self.config.max_chunks is not None and seen_chunks >= self.config.max_chunks:
+                    return
+                if self.stop_event is not None and self.stop_event.is_set():
                     return
 
 

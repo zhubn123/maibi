@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import asyncio
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from client.audio_capture import AudioCapturePipeline, AudioChunkSource, InMemoryAudioSource
@@ -38,6 +39,7 @@ async def stream_tencent_session_events(
     provider: TencentAsrProvider,
     config: AsrSessionConfig,
     frames: list[bytes],
+    on_event: Callable[[AsrEvent], None] | None = None,
 ) -> list[AsrEvent]:
     session = await provider.start_session(config)
     events: list[AsrEvent] = []
@@ -51,6 +53,8 @@ async def stream_tencent_session_events(
         while True:
             event = await session.receive_event()  # type: ignore[attr-defined]
             events.append(event)
+            if on_event is not None:
+                on_event(event)
             if event.final or event.type.value == "error":
                 break
     return events
@@ -60,20 +64,27 @@ async def run_tencent_stream_session(
     provider: TencentAsrProvider,
     config: AsrSessionConfig,
     source: AudioChunkSource,
+    *,
+    on_event: Callable[[AsrEvent], None] | None = None,
+    on_processing: Callable[[], None] | None = None,
 ) -> SessionRunResult:
     state = begin_listening()
-    frames = [
-        frame.data
-        for frame in AudioCapturePipeline(
-            source=source,
-            audio_format=config.audio_format,
-            frame_duration_ms=config.frame_duration_ms,
-        ).frames()
-    ]
+    frames = await asyncio.to_thread(
+        lambda: [
+            frame.data
+            for frame in AudioCapturePipeline(
+                source=source,
+                audio_format=config.audio_format,
+                frame_duration_ms=config.frame_duration_ms,
+            ).frames()
+        ]
+    )
     sent_frames = len(frames)
 
     state = begin_processing(state)
-    events = await stream_tencent_session_events(provider, config, frames)
+    if on_processing is not None:
+        on_processing()
+    events = await stream_tencent_session_events(provider, config, frames, on_event=on_event)
     for event in events:
         state = apply_asr_event(state, event)
 
@@ -94,12 +105,20 @@ async def run_bootstrapped_tencent_stream_session(
     config: AsrSessionConfig,
     source: AudioChunkSource,
     dialer: TencentWebSocketDialer,
+    on_event: Callable[[AsrEvent], None] | None = None,
+    on_processing: Callable[[], None] | None = None,
 ) -> SessionRunResult:
     provider = TencentAsrProvider(
         url_builder=_StaticTencentUrlBuilder(websocket_url),
         dialer=dialer,
     )
-    return await run_tencent_stream_session(provider, config, source)
+    return await run_tencent_stream_session(
+        provider,
+        config,
+        source,
+        on_event=on_event,
+        on_processing=on_processing,
+    )
 
 
 async def cancel_tencent_demo_session(
