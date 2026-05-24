@@ -2,6 +2,11 @@
 
 本文件面向在本仓库中工作的 coding agent。实现前先阅读 `docs/PLAN.md`、`docs/PR_GUIDELINES.md` 和 `docs/STATUS.md`，并以其中的产品边界、技术方案、项目进度和 PR 约束为准。
 
+当前特别注意：
+
+- `codex/demo-client-shell` 分支曾混入服务端/签名修正与 demo 交互改动。服务端/签名修正已单独收口，继续开发时应避免再与 demo 客户端改动混提交。
+- 当前 demo 壳已经能走本地签名服务、真实腾讯云握手和 `sounddevice + websockets` 基础路径，但 `client/session_runner.py` 仍然不是完全实时流式模型，继续开发应优先收这个问题。
+
 ## 项目目标
 
 麦笔 / Maibi 是一款面向 Windows 10/11 桌面的中文语音输入工具。首版服务小团队内测用户，核心形态是系统托盘应用、录音浮窗预览和设置页。
@@ -88,7 +93,7 @@ class AsrEvent:
 
 服务端必须遵守：
 
-- 腾讯云 `SecretId`、`SecretKey`、`AppId` 只通过服务端环境变量配置。
+- 腾讯云 `SecretId`、`SecretKey`、`AppId` 只通过服务端本地配置文件或等价的服务端私有配置注入。
 - 客户端不得保存云厂商 Secret。
 - 签名 URL 必须短期有效。
 - 按设备或客户端 ID 做每日分钟数限流。

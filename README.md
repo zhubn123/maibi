@@ -4,6 +4,14 @@
 
 当前仓库处于项目骨架阶段，产品边界和技术计划见 `docs/PLAN.md`，PR 流程见 `docs/PR_GUIDELINES.md`，项目进度见 `docs/STATUS.md`，Agent 协作规则见 `agents.md`。
 
+当前主线已经具备：
+
+- 本地签名服务生成腾讯云实时 ASR 签名 URL
+- 客户端 bootstrap 获取 `websocket_url`
+- demo 壳接入真实 `sounddevice + websockets` 路径的基础版本
+
+当前仍未收口的问题主要是真正的实时流式发送模型和输入法级交互细节，详情见 `docs/STATUS.md`。
+
 ## 目录结构
 
 - `client/`：Windows 桌面客户端，后续负责托盘、浮窗、录音、快捷键、配置和文本上屏。
@@ -60,6 +68,12 @@ python -m pip install -e ".[client]"
 ```powershell
 python -m client.demo_app
 ```
+
+腾讯云本地配置：
+
+- 示例文件：`server/config.example.json`
+- 本地真实配置：`server/config.local.json`
+- `server/config.local.json` 已被 `.gitignore` 忽略，不应提交到仓库
 
 ## 开发流程
 

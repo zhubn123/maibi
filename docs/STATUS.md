@@ -1,10 +1,10 @@
 # 项目进度
 
-最后更新：2026-05-23
+最后更新：2026-05-24
 
 ## 当前阶段
 
-项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层、腾讯云 ASR session 骨架、会话引导层和可体验客户端壳；正在推进 demo 壳接入真实语音链路。
+项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层、腾讯云 ASR session 骨架、会话引导层和可体验客户端壳；当前分支已能完成本地签名、真实腾讯云握手和 demo 壳语音链路的基础接入。当前主要问题集中在 `client/session_runner.py` 仍未实现真正边采集、边发送、边接收、边更新 UI 的实时流式模型。
 
 ## 已完成
 
@@ -44,18 +44,28 @@
 - PR #12：[Add session bootstrap client](https://github.com/zhubn123/maibi/pull/12)
   - 状态：已合并
   - 内容：新增客户端会话引导层，服务端返回真实腾讯云签名 URL，并把签名配置统一收进本地配置文件
+- PR #9：[Add Tencent ASR signer](https://github.com/zhubn123/maibi/pull/9)
+  - 状态：未合并，已被 PR #11 覆盖
+  - 内容：历史签名分支，后续可关闭，不应继续作为主线
+- 本地提交：`Fix Tencent signed session parameters`
+  - 状态：已提交
+  - 内容：修正腾讯云签名 URL 的 `voice_id` 参数、签名字符串拼接和 UTC 时间兼容，并补充对应测试
+- 本地提交：`Refine demo recording interaction`
+  - 状态：已提交
+  - 内容：demo 壳改为按住说话、松开结束，发送/接收并发处理，并覆盖 partial/stable/final 事件顺序测试
 
 ## 进行中
 
-- 真实语音链路接入
+- Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：把 demo 壳从 fake runner 切到真实 `sounddevice + websockets + bootstrap service`
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为发送/接收并发，但底层仍然先把 frame 全部收集成列表，不是真正的边采边发边收。
 
 ## 下一步
 
-1. 完成 demo 壳真实语音链路接入。
-2. PR #13：实现文本上屏能力。
-3. 完成全局快捷键、托盘交互和浮窗闭环。
+1. 重构 `client/session_runner.py` 为真正的实时流式模型：边采集、边发送、边接收、边更新 UI，而不是先收整段 frame 列表。
+2. 继续打磨 `client/demo_app.py` 的输入法级交互：实时 partial/stable 展示、错误保留文本、清除只重置状态不隐藏窗口。
+3. 完成后再做 `PR #13`：文本上屏能力。
+4. 之后再补全全局快捷键、托盘交互和浮窗闭环。
 
 ## 执行规则
 
