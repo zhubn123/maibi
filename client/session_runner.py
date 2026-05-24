@@ -44,12 +44,14 @@ async def stream_tencent_session_events(
     session = await provider.start_session(config)
     events: list[AsrEvent] = []
 
-    for frame in frames:
-        await session.send_audio(frame)
+    async def sender() -> None:
+        for frame in frames:
+            await session.send_audio(frame)
+        await session.finish()
 
-    await session.finish()
-
-    if hasattr(session, "receive_event"):
+    async def receiver() -> None:
+        if not hasattr(session, "receive_event"):
+            return
         while True:
             event = await session.receive_event()  # type: ignore[attr-defined]
             events.append(event)
@@ -57,6 +59,8 @@ async def stream_tencent_session_events(
                 on_event(event)
             if event.final or event.type.value == "error":
                 break
+
+    await asyncio.gather(sender(), receiver())
     return events
 
 

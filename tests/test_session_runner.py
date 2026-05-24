@@ -115,3 +115,29 @@ def test_run_bootstrapped_tencent_stream_session_uses_supplied_url() -> None:
 
     assert result.final_state.final_text == "最终文本"
     assert dialer.urls == ["wss://bootstrap.example/session"]
+
+
+def test_stream_session_emits_events_in_partial_stable_final_order() -> None:
+    provider, transport, _dialer = _provider_with_transport(
+        [
+            json.dumps({"code": 0, "result": {"voice_text_str": "中间结果", "slice_type": 1, "final": 0}}),
+            json.dumps({"code": 0, "result": {"voice_text_str": "稳定结果", "slice_type": 2, "final": 0}}),
+            json.dumps({"code": 0, "result": {"voice_text_str": "最终结果", "slice_type": 2, "final": 1}}),
+        ]
+    )
+    config = AsrSessionConfig()
+    frame = b"\x00" * config.frame_size_bytes
+    seen: list[str] = []
+
+    result = asyncio.run(
+        run_tencent_stream_session(
+            provider,
+            config,
+            InMemoryAudioSource.from_chunks([frame, frame]),
+            on_event=lambda event: seen.append(event.type.value),
+        )
+    )
+
+    assert seen == ["partial", "stable", "final"]
+    assert result.final_state.final_text == "最终结果"
+    assert transport.sent[0] == frame

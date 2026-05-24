@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import sys
-from dataclasses import dataclass
-import uuid
-import traceback
 import threading
+import traceback
+import uuid
+from dataclasses import dataclass
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeyEvent
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -21,19 +22,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
 from client.session_bootstrap import SessionBootstrapClient
 from client.session_runner import run_bootstrapped_tencent_stream_session
-from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
 from client.ui_state import (
     UiMode,
     apply_asr_event,
     begin_listening,
     begin_processing,
-    apply_user_intent,
     build_floating_window_view,
     build_tray_view,
     intent_from_copy_action,
-    intent_from_key,
     reset_to_idle,
 )
 from core import AsrSessionConfig, Hotword
@@ -48,10 +47,9 @@ class DragState:
 
 class SessionWorker(QThread):
     event_received = Signal(object)
-    processing_started = Signal()
-    session_finished = Signal()
+    state_changed = Signal(str)
     session_failed = Signal(str)
-    session_cancelled = Signal()
+    session_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -61,44 +59,37 @@ class SessionWorker(QThread):
         self._stop_requested.set()
 
     def run(self) -> None:
-        import asyncio
-
-        async def scenario():
+        async def scenario() -> None:
             config = AsrSessionConfig(
                 hotwords=(Hotword("麦笔"),),
                 client_session_id=f"maibi-demo-{uuid.uuid4().hex}",
             )
             bootstrap = SessionBootstrapClient()
             session_info = await bootstrap.create_tencent_session(config)
+            self.state_changed.emit("processing")
             source = SoundDeviceAudioSource(
                 SoundDeviceCaptureConfig(
                     sample_rate_hz=config.sample_rate_hz,
                     channels=config.channels,
                     block_duration_ms=config.frame_duration_ms,
                     max_chunks=None,
-                )
-                ,
+                ),
                 stop_event=self._stop_requested,
             )
-            result = await run_bootstrapped_tencent_stream_session(
+            await run_bootstrapped_tencent_stream_session(
                 websocket_url=session_info.websocket_url,
                 config=config,
                 source=source,
                 dialer=WebSocketsTencentDialer(),
                 on_event=lambda event: self.event_received.emit(event),
-                on_processing=lambda: self.processing_started.emit(),
             )
-            if self._stop_requested.is_set() and result.sent_frames == 0:
-                self.session_cancelled.emit()
-                return
-            self.session_finished.emit()
 
         try:
             asyncio.run(scenario())
-        except Exception as exc:  # pragma: no cover - UI-thread handoff
-            message = str(exc).strip() or traceback.format_exc(limit=1)
-            self.session_failed.emit(message)
+        except Exception as exc:  # pragma: no cover
+            self.session_failed.emit(str(exc).strip() or traceback.format_exc(limit=1))
             return
+        self.session_finished.emit()
 
 
 class DemoWindow(QMainWindow):
@@ -108,9 +99,10 @@ class DemoWindow(QMainWindow):
         self.tray: QSystemTrayIcon | None = None
         self.drag_state: DragState | None = None
         self.worker: SessionWorker | None = None
+        self.worker_generation = 0
 
         self.setWindowTitle("Maibi")
-        self.setFixedSize(660, 168)
+        self.setFixedSize(640, 154)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -123,13 +115,10 @@ class DemoWindow(QMainWindow):
         self.primary_text.setWordWrap(True)
         self.helper_text = QLabel()
         self.helper_text.setWordWrap(True)
-        self.hint_text = QLabel("Esc 取消    Enter 确认    Copy 复制")
 
-        self.run_button = QPushButton("开始录音")
-        self.finish_button = QPushButton("结束语音")
-        self.error_button = QPushButton("模拟错误")
+        self.hold_button = QPushButton("按住说话")
         self.copy_button = QPushButton("复制")
-        self.reset_button = QPushButton("收起")
+        self.clear_button = QPushButton("清除")
 
         self._build_ui()
         self._connect_signals()
@@ -139,9 +128,7 @@ class DemoWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.setStyleSheet(
             """
-            QMainWindow {
-                background: transparent;
-            }
+            QMainWindow { background: transparent; }
             QFrame#shell {
                 background: #f7f8fa;
                 border: 1px solid #d7dce5;
@@ -155,9 +142,7 @@ class DemoWindow(QMainWindow):
                 border-radius: 5px;
                 background: #64748b;
             }
-            QLabel {
-                color: #111827;
-            }
+            QLabel { color: #111827; }
             QPushButton {
                 background: #ffffff;
                 border: 1px solid #d7dce5;
@@ -187,8 +172,6 @@ class DemoWindow(QMainWindow):
         self.status_text.setStyleSheet("font-size: 12px; color: #475569;")
         top.addWidget(self.status_text, 0, Qt.AlignmentFlag.AlignVCenter)
         top.addStretch(1)
-        self.hint_text.setStyleSheet("font-size: 12px; color: #6b7280;")
-        top.addWidget(self.hint_text, 0, Qt.AlignmentFlag.AlignVCenter)
         shell_layout.addLayout(top)
 
         self.primary_text.setStyleSheet("font-size: 22px; font-weight: 600; color: #111827;")
@@ -199,13 +182,7 @@ class DemoWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.setSpacing(8)
-        for button in (
-            self.run_button,
-            self.finish_button,
-            self.error_button,
-            self.copy_button,
-            self.reset_button,
-        ):
+        for button in (self.hold_button, self.copy_button, self.clear_button):
             controls.addWidget(button)
         controls.addStretch(1)
         shell_layout.addLayout(controls)
@@ -213,11 +190,10 @@ class DemoWindow(QMainWindow):
         self.setCentralWidget(root)
 
     def _connect_signals(self) -> None:
-        self.run_button.clicked.connect(self._start_demo_session)
-        self.finish_button.clicked.connect(self._finish_demo_session)
-        self.error_button.clicked.connect(self._simulate_error)
+        self.hold_button.pressed.connect(self._start_recording)
+        self.hold_button.released.connect(self._stop_recording)
         self.copy_button.clicked.connect(self._copy_preview_text)
-        self.reset_button.clicked.connect(self._reset)
+        self.clear_button.clicked.connect(self._clear_text)
 
     def _init_tray(self) -> None:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -226,13 +202,13 @@ class DemoWindow(QMainWindow):
         self.tray = QSystemTrayIcon(QIcon(), self)
         menu = QMenu(self)
         show_action = QAction("显示悬浮条", self)
-        reset_action = QAction("回到就绪", self)
+        clear_action = QAction("清除状态", self)
         quit_action = QAction("退出", self)
         show_action.triggered.connect(self.show)
-        reset_action.triggered.connect(self._reset)
+        clear_action.triggered.connect(self._clear_text)
         quit_action.triggered.connect(QApplication.quit)
         menu.addAction(show_action)
-        menu.addAction(reset_action)
+        menu.addAction(clear_action)
         menu.addSeparator()
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
@@ -249,15 +225,6 @@ class DemoWindow(QMainWindow):
             self.hide()
             return
         super().closeEvent(event)
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            self._apply_key("Esc")
-            return
-        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
-            self._apply_key("Enter")
-            return
-        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
@@ -289,40 +256,50 @@ class DemoWindow(QMainWindow):
             return
         super().mouseReleaseEvent(event)
 
-    def _start_demo_session(self) -> None:
+    def _start_recording(self) -> None:
         if self.worker is not None and self.worker.isRunning():
             return
 
+        self.worker_generation += 1
+        generation = self.worker_generation
         self.state = begin_listening()
         self._render()
         self.worker = SessionWorker(self)
-        self.worker.processing_started.connect(self._on_processing_started)
-        self.worker.event_received.connect(self._on_event_received)
-        self.worker.session_finished.connect(self._on_session_finished)
-        self.worker.session_failed.connect(self._on_session_failed)
-        self.worker.session_cancelled.connect(self._on_session_cancelled)
+        self.worker.state_changed.connect(lambda state_name: self._on_worker_state_changed(generation, state_name))
+        self.worker.event_received.connect(lambda event: self._on_event_received(generation, event))
+        self.worker.session_failed.connect(lambda message: self._on_session_failed(generation, message))
+        self.worker.session_finished.connect(lambda: self._on_session_finished(generation))
         self.worker.start()
 
-    def _finish_demo_session(self) -> None:
+    def _stop_recording(self) -> None:
         if self.worker is None or not self.worker.isRunning():
             return
         self.worker.request_stop()
         self.state = begin_processing(self.state)
         self._render()
 
-    def _on_processing_started(self) -> None:
-        self.state = begin_processing(self.state)
-        self._render()
+    def _on_worker_state_changed(self, generation: int, state_name: str) -> None:
+        if generation != self.worker_generation:
+            return
+        if state_name == "processing":
+            self.state = begin_processing(self.state)
+            self._render()
 
-    def _on_event_received(self, event) -> None:
+    def _on_event_received(self, generation: int, event) -> None:
+        if generation != self.worker_generation:
+            return
         self.state = apply_asr_event(self.state, event)
         self._render()
 
-    def _on_session_finished(self) -> None:
+    def _on_session_finished(self, generation: int) -> None:
+        if generation != self.worker_generation:
+            return
         self.worker = None
         self._render()
 
-    def _on_session_failed(self, message: str) -> None:
+    def _on_session_failed(self, generation: int, message: str) -> None:
+        if generation != self.worker_generation:
+            return
         self.state = reset_to_idle()
         self.state = self.state.__class__(
             mode=UiMode.ERROR,
@@ -333,45 +310,29 @@ class DemoWindow(QMainWindow):
         self.worker = None
         self._render()
 
-    def _on_session_cancelled(self) -> None:
-        self.state = reset_to_idle()
-        self.worker = None
-        self._render()
-
-    def _simulate_error(self) -> None:
-        self.state = reset_to_idle()
-        self.state = self.state.__class__(
-            mode=UiMode.ERROR,
-            partial_text="网络有波动，保留这段识别文本",
-            error_code="demo_timeout",
-            error_message="识别出错：demo_timeout",
-        )
-        self._render()
-
-    def _apply_key(self, key: str) -> None:
-        self.state = apply_user_intent(self.state, intent_from_key(self.state, key))
-        self._render()
-
     def _copy_preview_text(self) -> None:
         intent = intent_from_copy_action(self.state)
         if intent.text:
             QGuiApplication.clipboard().setText(intent.text)
 
-    def _reset(self) -> None:
+    def _clear_text(self) -> None:
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.request_stop()
+        self.worker_generation += 1
+        self.worker = None
         self.state = reset_to_idle()
         self._render()
-        self.hide()
 
     def _render(self) -> None:
         tray_view = build_tray_view(self.state)
         floating_view = build_floating_window_view(self.state)
 
         self.status_text.setText(tray_view.tooltip)
-        self.primary_text.setText(floating_view.primary_text or "按开始录音，说完后点结束语音")
+        self.primary_text.setText(floating_view.primary_text or "按住说话，松开结束")
         self.helper_text.setText(floating_view.helper_text)
-        self.run_button.setEnabled(self.worker is None)
-        self.finish_button.setEnabled(self.worker is not None)
+        self.hold_button.setEnabled(True)
         self.copy_button.setEnabled(floating_view.can_copy)
+        self.clear_button.setEnabled(self.state.mode != UiMode.IDLE or self.worker is not None)
 
         color = {
             UiMode.IDLE: "#64748b",
