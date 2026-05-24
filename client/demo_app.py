@@ -27,7 +27,7 @@ from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfi
 from client.hotkey import HotkeyAction, create_default_hotkey_listener
 from client.session_bootstrap import SessionBootstrapClient
 from client.session_runner import run_bootstrapped_tencent_stream_session
-from client.text_commit import create_default_text_committer
+from client.text_commit import WindowTargeter, Win32WindowTargeter, create_default_text_committer
 from client.ui_state import (
     UiMode,
     apply_asr_event,
@@ -125,6 +125,7 @@ class DemoWindow(QMainWindow):
         text_committer: TextCommitter | None = None,
         *,
         hotkey_bridge_factory: Callable[[Callable[[], bool], QWidget], HotkeyBridge] | None = None,
+        window_targeter: WindowTargeter | None = None,
     ) -> None:
         super().__init__()
         self.state = reset_to_idle()
@@ -135,6 +136,8 @@ class DemoWindow(QMainWindow):
         self.text_committer = text_committer
         self.hotkey_bridge: HotkeyBridge | None = None
         self.hotkey_bridge_factory = hotkey_bridge_factory
+        self.window_targeter = window_targeter
+        self.commit_target_handle: int | None = None
 
         self.setWindowTitle("Maibi")
         self.setFixedSize(640, 154)
@@ -349,6 +352,7 @@ class DemoWindow(QMainWindow):
 
         self.worker_generation += 1
         generation = self.worker_generation
+        self.commit_target_handle = self._window_targeter().capture_foreground()
         self.state = begin_listening()
         self._render()
         self.worker = SessionWorker(self)
@@ -409,8 +413,9 @@ class DemoWindow(QMainWindow):
         self.worker = None
         if intent.text:
             committer = self._text_committer()
-            result = committer.commit(intent.text)
+            result = committer.commit(intent.text, target_handle=self.commit_target_handle)
             if result.ok:
+                self.commit_target_handle = None
                 self.state = reset_to_idle()
                 self._render()
                 return
@@ -435,6 +440,7 @@ class DemoWindow(QMainWindow):
             self.worker.request_stop()
         self.worker_generation += 1
         self.worker = None
+        self.commit_target_handle = None
         self.state = next_state
         self._render()
 
@@ -454,11 +460,17 @@ class DemoWindow(QMainWindow):
             self.text_committer = create_default_text_committer()
         return self.text_committer
 
+    def _window_targeter(self) -> WindowTargeter:
+        if self.window_targeter is None:
+            self.window_targeter = Win32WindowTargeter()
+        return self.window_targeter
+
     def _clear_text(self) -> None:
         if self.worker is not None and self.worker.isRunning():
             self.worker.request_stop()
         self.worker_generation += 1
         self.worker = None
+        self.commit_target_handle = None
         self.state = reset_to_idle()
         self._render()
 

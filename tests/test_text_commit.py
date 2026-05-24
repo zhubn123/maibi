@@ -38,10 +38,27 @@ class _FakeKeyboard:
         self.pasted = True
 
 
-def _committer(clipboard: _FakeClipboard, keyboard: _FakeKeyboard) -> ClipboardPasteCommitter:
+class _FakeTargeter:
+    def __init__(self, handle: int | None = 42) -> None:
+        self.handle = handle
+        self.restored: list[int | None] = []
+
+    def capture_foreground(self) -> int | None:
+        return self.handle
+
+    def restore_foreground(self, handle: int | None) -> None:
+        self.restored.append(handle)
+
+
+def _committer(
+    clipboard: _FakeClipboard,
+    keyboard: _FakeKeyboard,
+    targeter: _FakeTargeter | None = None,
+) -> ClipboardPasteCommitter:
     return ClipboardPasteCommitter(
         clipboard=clipboard,
         keyboard=keyboard,
+        targeter=targeter,
         restore_delay_seconds=0,
     )
 
@@ -49,11 +66,13 @@ def _committer(clipboard: _FakeClipboard, keyboard: _FakeKeyboard) -> ClipboardP
 def test_clipboard_paste_committer_writes_text_pastes_and_restores_original_text() -> None:
     clipboard = _FakeClipboard("原剪贴板")
     keyboard = _FakeKeyboard()
+    targeter = _FakeTargeter(99)
 
-    result = _committer(clipboard, keyboard).commit("识别文本")
+    result = _committer(clipboard, keyboard, targeter).commit("识别文本", target_handle=99)
 
     assert result.ok is True
     assert keyboard.pasted is True
+    assert targeter.restored == [99]
     assert clipboard.set_calls == ["识别文本", "原剪贴板"]
     assert clipboard.text == "原剪贴板"
 

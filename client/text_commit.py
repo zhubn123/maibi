@@ -16,19 +16,26 @@ class PasteKeyboard(Protocol):
     def paste(self) -> None: ...
 
 
+class WindowTargeter(Protocol):
+    def capture_foreground(self) -> int | None: ...
+    def restore_foreground(self, handle: int | None) -> None: ...
+
+
 class ClipboardPasteCommitter:
     def __init__(
         self,
         clipboard: TextClipboard,
         keyboard: PasteKeyboard,
+        targeter: WindowTargeter | None = None,
         *,
         restore_delay_seconds: float = 0.05,
     ) -> None:
         self.clipboard = clipboard
         self.keyboard = keyboard
+        self.targeter = targeter
         self.restore_delay_seconds = restore_delay_seconds
 
-    def commit(self, text: str) -> CommitResult:
+    def commit(self, text: str, target_handle: int | None = None) -> CommitResult:
         if not text:
             return CommitResult(
                 status=CommitStatus.FAILED,
@@ -41,6 +48,8 @@ class ClipboardPasteCommitter:
             original_text = self.clipboard.get_text()
             self.clipboard.set_text(text)
             clipboard_changed = True
+            if self.targeter is not None:
+                self.targeter.restore_foreground(target_handle)
             self.keyboard.paste()
         except Exception as exc:
             if clipboard_changed:
@@ -126,8 +135,24 @@ class Win32PasteKeyboard:
         self._api.keybd_event(vk_control, 0, self._con.KEYEVENTF_KEYUP, 0)
 
 
+class Win32WindowTargeter:
+    def __init__(self) -> None:
+        import win32gui
+
+        self._gui = win32gui
+
+    def capture_foreground(self) -> int | None:
+        handle = self._gui.GetForegroundWindow()
+        return int(handle) if handle else None
+
+    def restore_foreground(self, handle: int | None) -> None:
+        if handle:
+            self._gui.SetForegroundWindow(handle)
+
+
 def create_default_text_committer() -> ClipboardPasteCommitter:
     return ClipboardPasteCommitter(
         clipboard=Win32TextClipboard(),
         keyboard=Win32PasteKeyboard(),
+        targeter=Win32WindowTargeter(),
     )

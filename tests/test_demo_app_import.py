@@ -16,9 +16,11 @@ class _FakeCommitter:
     def __init__(self, result: CommitResult) -> None:
         self.result = result
         self.committed_text: str | None = None
+        self.target_handle: int | None = None
 
-    def commit(self, text: str) -> CommitResult:
+    def commit(self, text: str, target_handle: int | None = None) -> CommitResult:
         self.committed_text = text
+        self.target_handle = target_handle
         return self.result
 
 
@@ -39,6 +41,19 @@ class _FakeHotkeyBridge(QObject):
 
     def emit_action(self, action: HotkeyAction) -> None:
         self.action_received.emit(action.value)
+
+
+class _FakeWindowTargeter:
+    def __init__(self, handle: int | None = 42) -> None:
+        self.handle = handle
+        self.captured = 0
+
+    def capture_foreground(self) -> int | None:
+        self.captured += 1
+        return self.handle
+
+    def restore_foreground(self, handle: int | None) -> None:
+        pass
 
 
 def _window(**kwargs) -> tuple[DemoWindow, _FakeHotkeyBridge]:  # type: ignore[no-untyped-def]
@@ -84,7 +99,8 @@ def test_demo_window_session_failure_preserves_preview_text_for_copy() -> None:
 
 def test_demo_window_cancel_discards_preview_until_user_clears() -> None:
     _app()
-    window, _bridge = _window()
+    targeter = _FakeWindowTargeter(55)
+    window, _bridge = _window(window_targeter=targeter)
     try:
         window.state = ClientUiState(mode=UiMode.PROCESSING, partial_text="临时文本")
 
@@ -127,13 +143,15 @@ def test_demo_window_uses_non_focus_tool_window_flags() -> None:
 def test_demo_window_enter_commits_text_and_returns_to_idle() -> None:
     _app()
     committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
-    window, _bridge = _window(text_committer=committer)
+    window, _bridge = _window(text_committer=committer, window_targeter=_FakeWindowTargeter(77))
     try:
+        window.commit_target_handle = 77
         window.state = ClientUiState(mode=UiMode.FINAL, stable_text="上屏文本", final_text="上屏文本")
 
         window._confirm_preview_text()
 
         assert committer.committed_text == "上屏文本"
+        assert committer.target_handle == 77
         assert window.state.mode == UiMode.IDLE
         assert window.state.active_text == ""
     finally:
@@ -143,8 +161,9 @@ def test_demo_window_enter_commits_text_and_returns_to_idle() -> None:
 def test_demo_window_confirm_button_is_visible_entry_for_commit() -> None:
     _app()
     committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
-    window, _bridge = _window(text_committer=committer)
+    window, _bridge = _window(text_committer=committer, window_targeter=_FakeWindowTargeter(88))
     try:
+        window.commit_target_handle = 88
         window.state = ClientUiState(mode=UiMode.FINAL, stable_text="按钮上屏", final_text="按钮上屏")
         window._render()
 
@@ -154,6 +173,7 @@ def test_demo_window_confirm_button_is_visible_entry_for_commit() -> None:
         window.confirm_button.click()
 
         assert committer.committed_text == "按钮上屏"
+        assert committer.target_handle == 88
         assert window.state.mode == UiMode.IDLE
     finally:
         window.close()
@@ -161,16 +181,23 @@ def test_demo_window_confirm_button_is_visible_entry_for_commit() -> None:
 
 def test_demo_window_global_hotkey_actions_drive_recording_methods() -> None:
     _app()
-    window, bridge = _window()
+    targeter = _FakeWindowTargeter(55)
+    window, bridge = _window(window_targeter=targeter)
     calls: list[str] = []
     try:
-        window._start_recording = lambda: calls.append("start")  # type: ignore[method-assign]
+        def start_recording() -> None:
+            window.commit_target_handle = window._window_targeter().capture_foreground()
+            calls.append("start")
+
+        window._start_recording = start_recording  # type: ignore[method-assign]
         window._stop_recording = lambda: calls.append("stop")  # type: ignore[method-assign]
 
         bridge.emit_action(HotkeyAction.START_RECORDING)
         bridge.emit_action(HotkeyAction.STOP_RECORDING)
 
         assert calls == ["start", "stop"]
+        assert window.commit_target_handle == 55
+        assert targeter.captured == 1
     finally:
         window.close()
 
@@ -178,13 +205,15 @@ def test_demo_window_global_hotkey_actions_drive_recording_methods() -> None:
 def test_demo_window_global_hotkey_confirm_commits_text() -> None:
     _app()
     committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
-    window, bridge = _window(text_committer=committer)
+    window, bridge = _window(text_committer=committer, window_targeter=_FakeWindowTargeter(66))
     try:
+        window.commit_target_handle = 66
         window.state = ClientUiState(mode=UiMode.FINAL, stable_text="热键上屏", final_text="热键上屏")
 
         bridge.emit_action(HotkeyAction.CONFIRM)
 
         assert committer.committed_text == "热键上屏"
+        assert committer.target_handle == 66
         assert window.state.mode == UiMode.IDLE
     finally:
         window.close()

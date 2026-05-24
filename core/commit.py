@@ -22,6 +22,6 @@ class CommitResult:
 
 
 class TextCommitter(Protocol):
-    def commit(self, text: str) -> CommitResult:
+    def commit(self, text: str, target_handle: int | None = None) -> CommitResult:
         """Commit recognized text to the current cursor target."""
 
