@@ -71,12 +71,15 @@
 - 本地提交：`Expose demo commit action`
   - 状态：已提交
   - 内容：demo 浮窗新增“确认上屏”按钮，窗口改为不抢焦点的置顶工具窗，并在 README 中补充 demo 使用方式；`Enter` 快捷确认仍保留
+- 本地提交：`Add demo global hotkey flow`
+  - 状态：已提交
+  - 内容：新增可测试的全局热键状态机和 Windows 低级键盘 hook，demo 主路径改为 `Ctrl+Alt+Space` 按住录音、松开结束，活跃状态下拦截 `Enter` 确认、`Esc` 取消
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已接入全局热键主路径，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
 - 文本上屏能力
   - 状态：开发中
   - 内容：已新增剪贴板粘贴 committer、demo 确认按钮和 `Enter` 快捷确认，demo 浮窗已尽量避免抢走目标输入框焦点；仍需在 Windows 10/11 的 Notepad、Word、Chrome 输入框、微信和企业微信等目标应用中手工验证剪贴板恢复和输入注入表现。
@@ -85,7 +88,7 @@
 
 1. 在 Windows 目标应用中手工验证 demo 的文本上屏、剪贴板恢复和失败保留文本。
 2. 根据手工验证结果补齐必要的上屏失败提示或重试入口。
-3. 补全全局快捷键录音/取消/确认，让操作不依赖点击 demo 浮窗按钮。
+3. 继续补全托盘交互、快捷键冲突提示和设置页入口。
 
 ## 执行规则
 

@@ -5,6 +5,7 @@ import sys
 import threading
 import traceback
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import QThread, Qt, Signal
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
+from client.hotkey import HotkeyAction, create_default_hotkey_listener
 from client.session_bootstrap import SessionBootstrapClient
 from client.session_runner import run_bootstrapped_tencent_stream_session
 from client.text_commit import create_default_text_committer
@@ -42,6 +44,26 @@ from client.ui_state import (
 from core import AsrEvent, AsrEventType, AsrSessionConfig, Hotword
 from core.commit import TextCommitter
 from core.providers.tencent import WebSocketsTencentDialer
+
+
+class HotkeyBridge(QThread):
+    action_received = Signal(str)
+
+    def __init__(self, active_getter, parent: QWidget | None = None) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(parent)
+        self._listener = create_default_hotkey_listener(
+            active_getter=active_getter,
+            on_action=lambda action: self.action_received.emit(action.value),
+        )
+
+    def run(self) -> None:
+        self._listener.start()
+        self.exec()
+        self._listener.stop()
+
+    def stop(self) -> None:
+        self.quit()
+        self.wait(1000)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +120,12 @@ class SessionWorker(QThread):
 
 
 class DemoWindow(QMainWindow):
-    def __init__(self, text_committer: TextCommitter | None = None) -> None:
+    def __init__(
+        self,
+        text_committer: TextCommitter | None = None,
+        *,
+        hotkey_bridge_factory: Callable[[Callable[[], bool], QWidget], HotkeyBridge] | None = None,
+    ) -> None:
         super().__init__()
         self.state = reset_to_idle()
         self.tray: QSystemTrayIcon | None = None
@@ -106,6 +133,8 @@ class DemoWindow(QMainWindow):
         self.worker: SessionWorker | None = None
         self.worker_generation = 0
         self.text_committer = text_committer
+        self.hotkey_bridge: HotkeyBridge | None = None
+        self.hotkey_bridge_factory = hotkey_bridge_factory
 
         self.setWindowTitle("Maibi")
         self.setFixedSize(640, 154)
@@ -136,6 +165,8 @@ class DemoWindow(QMainWindow):
         self._build_ui()
         self._connect_signals()
         self._init_tray()
+        self._start_hotkeys()
+        QApplication.instance().aboutToQuit.connect(self._stop_hotkeys)
         self._render()
 
     def _build_ui(self) -> None:
@@ -229,6 +260,36 @@ class DemoWindow(QMainWindow):
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
 
+    def _start_hotkeys(self) -> None:
+        if self.hotkey_bridge_factory is None:
+            self.hotkey_bridge_factory = lambda active_getter, parent: HotkeyBridge(active_getter, parent)
+        self.hotkey_bridge = self.hotkey_bridge_factory(self._hotkeys_active, self)
+        self.hotkey_bridge.action_received.connect(self._on_hotkey_action)
+        self.hotkey_bridge.start()
+
+    def _stop_hotkeys(self) -> None:
+        if self.hotkey_bridge is not None:
+            self.hotkey_bridge.stop()
+            self.hotkey_bridge = None
+
+    def _hotkeys_active(self) -> bool:
+        return self.state.can_cancel or self.state.can_confirm
+
+    def _on_hotkey_action(self, action_name: str) -> None:
+        action = HotkeyAction(action_name)
+        if action == HotkeyAction.START_RECORDING:
+            self._start_recording()
+            return
+        if action == HotkeyAction.STOP_RECORDING:
+            self._stop_recording()
+            return
+        if action == HotkeyAction.CONFIRM:
+            self._confirm_preview_text()
+            return
+        if action == HotkeyAction.CANCEL:
+            self._cancel_input()
+            return
+
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.setVisible(not self.isVisible())
@@ -238,6 +299,7 @@ class DemoWindow(QMainWindow):
             event.ignore()
             self.hide()
             return
+        self._stop_hotkeys()
         super().closeEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
