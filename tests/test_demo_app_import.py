@@ -49,3 +49,18 @@ def test_demo_window_cancel_discards_preview_until_user_clears() -> None:
         assert window.state.active_text == ""
     finally:
         window.close()
+
+
+def test_demo_window_copy_action_shows_success_notice() -> None:
+    _app()
+    window = DemoWindow()
+    try:
+        window.state = ClientUiState(mode=UiMode.FINAL, stable_text="可复制", final_text="可复制")
+
+        window._copy_preview_text()
+
+        assert window.state.notice_message == "已复制"
+        assert window.helper_text.text() == "已复制"
+        assert QApplication.clipboard().text() == "可复制"
+    finally:
+        window.close()

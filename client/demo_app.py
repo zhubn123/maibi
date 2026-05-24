@@ -36,6 +36,7 @@ from client.ui_state import (
     intent_from_copy_action,
     intent_from_key,
     reset_to_idle,
+    with_notice,
 )
 from core import AsrEvent, AsrEventType, AsrSessionConfig, Hotword
 from core.providers.tencent import WebSocketsTencentDialer
@@ -349,7 +350,13 @@ class DemoWindow(QMainWindow):
     def _copy_preview_text(self) -> None:
         intent = intent_from_copy_action(self.state)
         if intent.text:
-            QGuiApplication.clipboard().setText(intent.text)
+            try:
+                QGuiApplication.clipboard().setText(intent.text)
+            except Exception:  # pragma: no cover - Qt clipboard failure is platform dependent
+                self.state = with_notice(self.state, "复制失败，请手动选择文本")
+            else:
+                self.state = with_notice(self.state, "已复制")
+            self._render()
 
     def _clear_text(self) -> None:
         if self.worker is not None and self.worker.isRunning():

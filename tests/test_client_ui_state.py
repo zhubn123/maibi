@@ -12,6 +12,7 @@ from client.ui_state import (
     initial_state,
     intent_from_copy_action,
     intent_from_key,
+    with_notice,
 )
 
 
@@ -219,6 +220,22 @@ def test_error_after_stable_text_can_copy_but_not_confirm() -> None:
     assert floating.can_copy is True
     assert intent_from_key(error_state, "Enter").kind == UiIntentKind.NO_ACTION
     assert intent_from_copy_action(error_state).text == "稳定文本"
+
+
+def test_notice_message_overrides_helper_until_next_asr_event() -> None:
+    state = apply_asr_event(
+        begin_processing(begin_listening()),
+        AsrEvent(type=AsrEventType.FINAL, text="最终文本", stable=True, final=True),
+    )
+    copied = with_notice(state, "已复制")
+    next_state = apply_asr_event(
+        copied,
+        AsrEvent(type=AsrEventType.FINAL, text="新文本", stable=True, final=True),
+    )
+
+    assert build_floating_window_view(copied).helper_text == "已复制"
+    assert next_state.notice_message is None
+    assert build_floating_window_view(next_state).helper_text == "可确认上屏，也可手动复制文本"
 
 
 def test_enter_confirm_applies_final_state_with_stable_text_only() -> None:

@@ -48,6 +48,7 @@ class ClientUiState:
     active_segment_text: str = ""
     error_code: str | None = None
     error_message: str | None = None
+    notice_message: str | None = None
 
     @property
     def active_text(self) -> str:
@@ -145,6 +146,7 @@ def begin_processing(state: ClientUiState) -> ClientUiState:
         mode=UiMode.PROCESSING,
         error_code=None,
         error_message=None,
+        notice_message=None,
     )
 
 
@@ -162,6 +164,7 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
             mode=UiMode.ERROR,
             error_code=event.error_code,
             error_message=_error_message(event),
+            notice_message=None,
         )
 
     if event.final or event.type == AsrEventType.FINAL:
@@ -176,6 +179,7 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
             active_segment_text=event.text,
             error_code=None,
             error_message=None,
+            notice_message=None,
         )
 
     if event.stable or event.type == AsrEventType.STABLE:
@@ -190,6 +194,7 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
             active_segment_text=event.text,
             error_code=None,
             error_message=None,
+            notice_message=None,
         )
 
     partial_text = _partial_text(state, event)
@@ -202,6 +207,7 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
         active_segment_text=event.text,
         error_code=None,
         error_message=None,
+        notice_message=None,
     )
 
 
@@ -236,6 +242,10 @@ def apply_user_intent(state: ClientUiState, intent: UiIntent) -> ClientUiState:
     return state
 
 
+def with_notice(state: ClientUiState, message: str) -> ClientUiState:
+    return replace(state, notice_message=message)
+
+
 def build_tray_view(state: ClientUiState) -> TrayView:
     status_text = _STATUS_TEXT[state.mode]
     return TrayView(
@@ -248,7 +258,7 @@ def build_tray_view(state: ClientUiState) -> TrayView:
 def build_floating_window_view(state: ClientUiState) -> FloatingWindowView:
     status_text = _STATUS_TEXT[state.mode]
     primary_text = state.active_text
-    helper_text = state.error_message or _FLOATING_HELPER_TEXT[state.mode]
+    helper_text = state.notice_message or state.error_message or _FLOATING_HELPER_TEXT[state.mode]
     if not primary_text and state.mode == UiMode.LISTENING:
         primary_text = "正在等待语音..."
     if not primary_text and state.mode == UiMode.PROCESSING:
@@ -347,4 +357,5 @@ __all__ = [
     "intent_from_copy_action",
     "intent_from_key",
     "reset_to_idle",
+    "with_notice",
 ]

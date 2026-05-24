@@ -62,12 +62,15 @@
 - 本地提交：`Tighten demo input state semantics`
   - 状态：已提交
   - 内容：恢复 demo 壳 `Esc` 取消和 `Enter` 确认预览语义，错误状态保留已识别文本用于复制但不允许确认上屏，清除仍作为唯一主动清空入口
+- 本地提交：`Show demo copy feedback`
+  - 状态：已提交
+  - 内容：复制预览文本后在浮窗 helper 文案显示成功或失败反馈，反馈只保存在客户端内存态，不记录转写内容
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消和清除的基础语义。
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
 
 ## 下一步
 
