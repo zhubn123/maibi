@@ -10,7 +10,7 @@
 - 客户端 bootstrap 获取 `websocket_url`
 - demo 壳接入真实 `sounddevice + websockets` 路径的基础版本
 
-当前仍未收口的问题主要是真正的实时流式发送模型和输入法级交互细节，详情见 `docs/STATUS.md`。
+当前仍未收口的问题主要是输入法级交互细节和文本上屏能力，详情见 `docs/STATUS.md`。
 
 ## 目录结构
 

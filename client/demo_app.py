@@ -66,7 +66,6 @@ class SessionWorker(QThread):
             )
             bootstrap = SessionBootstrapClient()
             session_info = await bootstrap.create_tencent_session(config)
-            self.state_changed.emit("processing")
             source = SoundDeviceAudioSource(
                 SoundDeviceCaptureConfig(
                     sample_rate_hz=config.sample_rate_hz,
@@ -82,6 +81,7 @@ class SessionWorker(QThread):
                 source=source,
                 dialer=WebSocketsTencentDialer(),
                 on_event=lambda event: self.event_received.emit(event),
+                on_processing=lambda: self.state_changed.emit("processing"),
             )
 
         try:

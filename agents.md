@@ -5,7 +5,7 @@
 当前特别注意：
 
 - `codex/demo-client-shell` 分支曾混入服务端/签名修正与 demo 交互改动。服务端/签名修正已单独收口，继续开发时应避免再与 demo 客户端改动混提交。
-- 当前 demo 壳已经能走本地签名服务、真实腾讯云握手和 `sounddevice + websockets` 基础路径，但 `client/session_runner.py` 仍然不是完全实时流式模型，继续开发应优先收这个问题。
+- 当前 demo 壳已经能走本地签名服务、真实腾讯云握手和 `sounddevice + websockets` 基础路径，`client/session_runner.py` 已改为连接后边采集、边发送、边接收。继续开发应优先收 demo 输入法级交互细节，再进入文本上屏能力。
 
 ## 项目目标
 

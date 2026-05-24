@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Iterator
 
 from client.audio_capture import InMemoryAudioSource
 from client.session_runner import (
@@ -17,12 +18,15 @@ from core.providers.tencent import (
 
 
 class _FakeTransport:
-    def __init__(self, messages: list[str]) -> None:
+    def __init__(self, messages: list[str], events: list[str] | None = None) -> None:
         self.messages = list(messages)
+        self.events = events
         self.sent: list[bytes] = []
         self.closed = False
 
     async def send(self, data: bytes) -> None:
+        if self.events is not None:
+            self.events.append("send")
         self.sent.append(data)
 
     async def recv(self) -> str:
@@ -33,11 +37,14 @@ class _FakeTransport:
 
 
 class _FakeDialer:
-    def __init__(self, transport: _FakeTransport) -> None:
+    def __init__(self, transport: _FakeTransport, events: list[str] | None = None) -> None:
         self.transport = transport
+        self.events = events
         self.urls: list[str] = []
 
     async def connect(self, url: str):
+        if self.events is not None:
+            self.events.append("connect")
         self.urls.append(url)
         return self.transport
 
@@ -56,6 +63,19 @@ def _provider_with_transport(messages: list[str]) -> tuple[TencentAsrProvider, _
         dialer=dialer,
     )
     return provider, transport, dialer
+
+
+class _TracingAudioSource:
+    def __init__(self, events: list[str], chunks: list[bytes]) -> None:
+        self.events = events
+        self._chunks = chunks
+
+    def chunks(self) -> Iterator[bytes]:
+        self.events.append("source_start")
+        for chunk in self._chunks:
+            self.events.append("source_chunk")
+            yield chunk
+        self.events.append("source_done")
 
 
 def test_run_tencent_demo_session_sends_frames_and_applies_final_event() -> None:
@@ -141,3 +161,40 @@ def test_stream_session_emits_events_in_partial_stable_final_order() -> None:
     assert seen == ["partial", "stable", "final"]
     assert result.final_state.final_text == "最终结果"
     assert transport.sent[0] == frame
+
+
+def test_stream_session_connects_before_consuming_audio_source() -> None:
+    events: list[str] = []
+    transport = _FakeTransport(
+        [json.dumps({"code": 0, "result": {"voice_text_str": "最终结果", "slice_type": 2, "final": 1}})],
+        events,
+    )
+    dialer = _FakeDialer(transport, events)
+    provider = TencentAsrProvider(
+        TencentAsrUrlBuilder(
+            TencentAsrCredentials(
+                appid="123456",
+                secret_id="secret-id",
+                secret_key="secret-key",
+            )
+        ),
+        dialer=dialer,
+    )
+    config = AsrSessionConfig()
+    source = _TracingAudioSource(events, [b"\x00" * config.frame_size_bytes])
+    processing_events: list[str] = []
+
+    result = asyncio.run(
+        run_tencent_stream_session(
+            provider,
+            config,
+            source,
+            on_processing=lambda: processing_events.append("processing"),
+        )
+    )
+
+    assert result.sent_frames == 1
+    assert events[:2] == ["connect", "source_start"]
+    assert events.index("send") < events.index("source_done")
+    assert events.index("source_done") < len(events)
+    assert processing_events == ["processing"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 
 from client.audio_capture import AudioCapturePipeline, AudioChunkSource, InMemoryAudioSource
@@ -12,7 +12,7 @@ from client.ui_state import (
     begin_processing,
     reset_to_idle,
 )
-from core import AsrEvent, AsrSessionConfig
+from core import AsrEvent, AsrSession, AsrSessionConfig
 from core.providers.tencent import TencentAsrProvider, TencentWebSocketDialer
 
 
@@ -42,25 +42,11 @@ async def stream_tencent_session_events(
     on_event: Callable[[AsrEvent], None] | None = None,
 ) -> list[AsrEvent]:
     session = await provider.start_session(config)
-    events: list[AsrEvent] = []
-
-    async def sender() -> None:
-        for frame in frames:
-            await session.send_audio(frame)
-        await session.finish()
-
-    async def receiver() -> None:
-        if not hasattr(session, "receive_event"):
-            return
-        while True:
-            event = await session.receive_event()  # type: ignore[attr-defined]
-            events.append(event)
-            if on_event is not None:
-                on_event(event)
-            if event.final or event.type.value == "error":
-                break
-
-    await asyncio.gather(sender(), receiver())
+    _sent_frames, events = await _run_session_tasks(
+        session,
+        _send_prepared_frames(session, frames),
+        on_event=on_event,
+    )
     return events
 
 
@@ -73,22 +59,19 @@ async def run_tencent_stream_session(
     on_processing: Callable[[], None] | None = None,
 ) -> SessionRunResult:
     state = begin_listening()
-    frames = await asyncio.to_thread(
-        lambda: [
-            frame.data
-            for frame in AudioCapturePipeline(
-                source=source,
-                audio_format=config.audio_format,
-                frame_duration_ms=config.frame_duration_ms,
-            ).frames()
-        ]
+    session = await provider.start_session(config)
+    sent_frames, events = await _run_session_tasks(
+        session,
+        _send_source_frames(
+            session,
+            config,
+            source,
+            on_processing=on_processing,
+        ),
+        on_event=on_event,
     )
-    sent_frames = len(frames)
 
     state = begin_processing(state)
-    if on_processing is not None:
-        on_processing()
-    events = await stream_tencent_session_events(provider, config, frames, on_event=on_event)
     for event in events:
         state = apply_asr_event(state, event)
 
@@ -132,3 +115,81 @@ async def cancel_tencent_demo_session(
     session = await provider.start_session(config)
     await session.cancel()
     return reset_to_idle()
+
+
+async def _run_session_tasks(
+    session: AsrSession,
+    sender: Coroutine[object, object, int],
+    *,
+    on_event: Callable[[AsrEvent], None] | None,
+) -> tuple[int, list[AsrEvent]]:
+    sender_task = asyncio.create_task(sender)
+    receiver_task = asyncio.create_task(_receive_session_events(session, on_event))
+    try:
+        sent_frames, events = await asyncio.gather(sender_task, receiver_task)
+    except Exception:
+        sender_task.cancel()
+        receiver_task.cancel()
+        await asyncio.gather(sender_task, receiver_task, return_exceptions=True)
+        try:
+            await session.cancel()
+        except Exception:
+            pass
+        raise
+    return sent_frames, events
+
+
+async def _send_prepared_frames(session: AsrSession, frames: Iterable[bytes]) -> int:
+    sent_frames = 0
+    for frame in frames:
+        await session.send_audio(frame)
+        sent_frames += 1
+    await session.finish()
+    return sent_frames
+
+
+async def _send_source_frames(
+    session: AsrSession,
+    config: AsrSessionConfig,
+    source: AudioChunkSource,
+    *,
+    on_processing: Callable[[], None] | None,
+) -> int:
+    loop = asyncio.get_running_loop()
+    sent_frames = 0
+
+    def capture_and_send() -> None:
+        nonlocal sent_frames
+        pipeline = AudioCapturePipeline(
+            source=source,
+            audio_format=config.audio_format,
+            frame_duration_ms=config.frame_duration_ms,
+        )
+        for frame in pipeline.frames():
+            future = asyncio.run_coroutine_threadsafe(session.send_audio(frame.data), loop)
+            future.result()
+            sent_frames += 1
+
+    await asyncio.to_thread(capture_and_send)
+    if on_processing is not None:
+        on_processing()
+    await session.finish()
+    return sent_frames
+
+
+async def _receive_session_events(
+    session: AsrSession,
+    on_event: Callable[[AsrEvent], None] | None,
+) -> list[AsrEvent]:
+    events: list[AsrEvent] = []
+    if not hasattr(session, "receive_event"):
+        return events
+
+    while True:
+        event = await session.receive_event()  # type: ignore[attr-defined]
+        events.append(event)
+        if on_event is not None:
+            on_event(event)
+        if event.final or event.type.value == "error":
+            break
+    return events
