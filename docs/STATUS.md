@@ -59,17 +59,20 @@
 - 本地提交：`Accumulate indexed ASR preview text`
   - 状态：已提交
   - 内容：ASR 事件增加句段序号，腾讯云事件解析 `result.index`，UI 按句段累积 stable/final 文本，partial 只作为当前句段预览，避免语音停顿后清掉前文
+- 本地提交：`Tighten demo input state semantics`
+  - 状态：已提交
+  - 内容：恢复 demo 壳 `Esc` 取消和 `Enter` 确认预览语义，错误状态保留已识别文本用于复制但不允许确认上屏，清除仍作为唯一主动清空入口
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本。后续还需要继续打磨错误保留文本、取消和清除语义。
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消和清除的基础语义。
 
 ## 下一步
 
-1. 继续打磨 `client/demo_app.py` 的输入法级交互：错误保留文本、清除只重置状态不隐藏窗口、取消语义。
-2. 完成后再做 `PR #13`：文本上屏能力。
+1. 进入 `PR #13`：实现文本上屏能力，先做剪贴板粘贴 committer 和失败保留文本。
+2. 把 demo 的 `Enter` 确认接到文本上屏能力，成功后回到就绪，失败则保留浮窗文本。
 3. 之后再补全全局快捷键、托盘交互和浮窗闭环。
 
 ## 执行规则

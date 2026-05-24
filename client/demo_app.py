@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -28,14 +28,16 @@ from client.session_runner import run_bootstrapped_tencent_stream_session
 from client.ui_state import (
     UiMode,
     apply_asr_event,
+    apply_user_intent,
     begin_listening,
     begin_processing,
     build_floating_window_view,
     build_tray_view,
     intent_from_copy_action,
+    intent_from_key,
     reset_to_idle,
 )
-from core import AsrSessionConfig, Hotword
+from core import AsrEvent, AsrEventType, AsrSessionConfig, Hotword
 from core.providers.tencent import WebSocketsTencentDialer
 
 
@@ -226,6 +228,17 @@ class DemoWindow(QMainWindow):
             return
         super().closeEvent(event)
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel_input()
+            event.accept()
+            return
+        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            self._confirm_preview_text()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
             position = event.globalPosition().toPoint()
@@ -300,14 +313,37 @@ class DemoWindow(QMainWindow):
     def _on_session_failed(self, generation: int, message: str) -> None:
         if generation != self.worker_generation:
             return
-        self.state = reset_to_idle()
-        self.state = self.state.__class__(
-            mode=UiMode.ERROR,
-            partial_text="",
-            error_code="bootstrap_or_ws_failed",
-            error_message=message,
+        self.state = apply_asr_event(
+            self.state,
+            AsrEvent(
+                type=AsrEventType.ERROR,
+                text=message,
+                error_code="bootstrap_or_ws_failed",
+            ),
         )
         self.worker = None
+        self._render()
+
+    def _confirm_preview_text(self) -> None:
+        next_state = apply_user_intent(self.state, intent_from_key(self.state, "Enter"))
+        if next_state == self.state:
+            return
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.request_stop()
+        self.worker_generation += 1
+        self.worker = None
+        self.state = next_state
+        self._render()
+
+    def _cancel_input(self) -> None:
+        next_state = apply_user_intent(self.state, intent_from_key(self.state, "Esc"))
+        if next_state == self.state:
+            return
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.request_stop()
+        self.worker_generation += 1
+        self.worker = None
+        self.state = next_state
         self._render()
 
     def _copy_preview_text(self) -> None:

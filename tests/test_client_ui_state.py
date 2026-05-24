@@ -200,6 +200,27 @@ def test_error_state_preserves_recognized_text_for_manual_copy() -> None:
     assert copy_intent.text == "可复制文本"
 
 
+def test_error_after_stable_text_can_copy_but_not_confirm() -> None:
+    state = apply_asr_event(
+        begin_listening(),
+        AsrEvent(type=AsrEventType.STABLE, text="稳定文本", stable=True, segment_index=0),
+    )
+
+    error_state = apply_asr_event(
+        state,
+        AsrEvent(type=AsrEventType.ERROR, text="网络中断", error_code="network_timeout"),
+    )
+    floating = build_floating_window_view(error_state)
+
+    assert error_state.mode == UiMode.ERROR
+    assert error_state.active_text == "稳定文本"
+    assert error_state.can_confirm is False
+    assert floating.can_confirm is False
+    assert floating.can_copy is True
+    assert intent_from_key(error_state, "Enter").kind == UiIntentKind.NO_ACTION
+    assert intent_from_copy_action(error_state).text == "稳定文本"
+
+
 def test_enter_confirm_applies_final_state_with_stable_text_only() -> None:
     state = apply_asr_event(
         begin_listening(),

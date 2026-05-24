@@ -63,7 +63,7 @@ class ClientUiState:
 
     @property
     def can_confirm(self) -> bool:
-        return bool(self.confirmable_text)
+        return self.mode != UiMode.ERROR and bool(self.confirmable_text)
 
     @property
     def can_cancel(self) -> bool:
@@ -76,7 +76,7 @@ class ClientUiState:
 
     @property
     def can_copy(self) -> bool:
-        return self.mode in {UiMode.ERROR, UiMode.FINAL} and bool(self.active_text)
+        return self.mode in {UiMode.ERROR, UiMode.FINAL, UiMode.PROCESSING} and bool(self.active_text)
 
 
 @dataclass(frozen=True, slots=True)
