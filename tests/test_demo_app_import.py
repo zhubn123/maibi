@@ -7,6 +7,17 @@ from client.ui_state import ClientUiState, UiMode
 from PySide6.QtWidgets import QApplication
 
 from client.demo_app import DemoWindow
+from core import CommitResult, CommitStatus
+
+
+class _FakeCommitter:
+    def __init__(self, result: CommitResult) -> None:
+        self.result = result
+        self.committed_text: str | None = None
+
+    def commit(self, text: str) -> CommitResult:
+        self.committed_text = text
+        return self.result
 
 
 def test_demo_app_module_exists() -> None:
@@ -62,5 +73,45 @@ def test_demo_window_copy_action_shows_success_notice() -> None:
         assert window.state.notice_message == "已复制"
         assert window.helper_text.text() == "已复制"
         assert QApplication.clipboard().text() == "可复制"
+    finally:
+        window.close()
+
+
+def test_demo_window_enter_commits_text_and_returns_to_idle() -> None:
+    _app()
+    committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
+    window = DemoWindow(text_committer=committer)
+    try:
+        window.state = ClientUiState(mode=UiMode.FINAL, stable_text="上屏文本", final_text="上屏文本")
+
+        window._confirm_preview_text()
+
+        assert committer.committed_text == "上屏文本"
+        assert window.state.mode == UiMode.IDLE
+        assert window.state.active_text == ""
+    finally:
+        window.close()
+
+
+def test_demo_window_enter_keeps_text_on_commit_failure() -> None:
+    _app()
+    committer = _FakeCommitter(
+        CommitResult(
+            status=CommitStatus.FAILED,
+            error_code="commit_failed",
+            message="文本上屏失败，请手动复制",
+        )
+    )
+    window = DemoWindow(text_committer=committer)
+    try:
+        window.state = ClientUiState(mode=UiMode.FINAL, stable_text="保留文本", final_text="保留文本")
+
+        window._confirm_preview_text()
+
+        assert committer.committed_text == "保留文本"
+        assert window.state.mode == UiMode.ERROR
+        assert window.state.active_text == "保留文本"
+        assert window.state.can_copy is True
+        assert window.helper_text.text() == "文本上屏失败，请手动复制"
     finally:
         window.close()

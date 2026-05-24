@@ -65,17 +65,23 @@
 - 本地提交：`Show demo copy feedback`
   - 状态：已提交
   - 内容：复制预览文本后在浮窗 helper 文案显示成功或失败反馈，反馈只保存在客户端内存态，不记录转写内容
+- 本地提交：`Add clipboard paste text committer`
+  - 状态：已提交
+  - 内容：新增剪贴板粘贴式文本上屏 committer，使用 pywin32 写入 Unicode 文本、发送 `Ctrl+V` 并尽量恢复原剪贴板；demo `Enter` 确认已接入，失败时保留浮窗文本
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
   - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
+- 文本上屏能力
+  - 状态：开发中
+  - 内容：已新增剪贴板粘贴 committer 和 demo 确认接入，仍需在 Windows 10/11 的 Notepad、Word、Chrome 输入框、微信和企业微信等目标应用中手工验证剪贴板恢复和输入注入表现。
 
 ## 下一步
 
-1. 进入 `PR #13`：实现文本上屏能力，先做剪贴板粘贴 committer 和失败保留文本。
-2. 把 demo 的 `Enter` 确认接到文本上屏能力，成功后回到就绪，失败则保留浮窗文本。
+1. 在 Windows 目标应用中手工验证 demo 的文本上屏、剪贴板恢复和失败保留文本。
+2. 根据手工验证结果补齐必要的上屏失败提示或重试入口。
 3. 之后再补全全局快捷键、托盘交互和浮窗闭环。
 
 ## 执行规则

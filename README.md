@@ -9,8 +9,9 @@
 - 本地签名服务生成腾讯云实时 ASR 签名 URL
 - 客户端 bootstrap 获取 `websocket_url`
 - demo 壳接入真实 `sounddevice + websockets` 路径的基础版本
+- demo 壳基础剪贴板粘贴上屏能力
 
-当前仍未收口的问题主要是输入法级交互细节和文本上屏能力，详情见 `docs/STATUS.md`。
+当前仍未收口的问题主要是 Windows 目标应用手工验证、全局快捷键和托盘/浮窗闭环，详情见 `docs/STATUS.md`。
 
 ## 目录结构
 
@@ -32,6 +33,7 @@
 
 - Python 3.11+
 - Windows 10/11 用于客户端验收
+- 客户端文本上屏依赖 `pywin32` 调用 Windows 剪贴板和键盘事件
 
 建议使用虚拟环境：
 

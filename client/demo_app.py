@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from client.audio_capture import SoundDeviceAudioSource, SoundDeviceCaptureConfig
 from client.session_bootstrap import SessionBootstrapClient
 from client.session_runner import run_bootstrapped_tencent_stream_session
+from client.text_commit import create_default_text_committer
 from client.ui_state import (
     UiMode,
     apply_asr_event,
@@ -39,6 +40,7 @@ from client.ui_state import (
     with_notice,
 )
 from core import AsrEvent, AsrEventType, AsrSessionConfig, Hotword
+from core.commit import TextCommitter
 from core.providers.tencent import WebSocketsTencentDialer
 
 
@@ -96,13 +98,14 @@ class SessionWorker(QThread):
 
 
 class DemoWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, text_committer: TextCommitter | None = None) -> None:
         super().__init__()
         self.state = reset_to_idle()
         self.tray: QSystemTrayIcon | None = None
         self.drag_state: DragState | None = None
         self.worker: SessionWorker | None = None
         self.worker_generation = 0
+        self.text_committer = text_committer
 
         self.setWindowTitle("Maibi")
         self.setFixedSize(640, 154)
@@ -326,13 +329,31 @@ class DemoWindow(QMainWindow):
         self._render()
 
     def _confirm_preview_text(self) -> None:
-        next_state = apply_user_intent(self.state, intent_from_key(self.state, "Enter"))
-        if next_state == self.state:
+        intent = intent_from_key(self.state, "Enter")
+        if not intent.commits_text:
             return
+        next_state = apply_user_intent(self.state, intent)
         if self.worker is not None and self.worker.isRunning():
             self.worker.request_stop()
         self.worker_generation += 1
         self.worker = None
+        if intent.text:
+            committer = self._text_committer()
+            result = committer.commit(intent.text)
+            if result.ok:
+                self.state = reset_to_idle()
+                self._render()
+                return
+            self.state = apply_asr_event(
+                next_state,
+                AsrEvent(
+                    type=AsrEventType.ERROR,
+                    text=result.message or "文本上屏失败，请手动复制",
+                    error_code=result.error_code or "commit_failed",
+                ),
+            )
+            self._render()
+            return
         self.state = next_state
         self._render()
 
@@ -357,6 +378,11 @@ class DemoWindow(QMainWindow):
             else:
                 self.state = with_notice(self.state, "已复制")
             self._render()
+
+    def _text_committer(self) -> TextCommitter:
+        if self.text_committer is None:
+            self.text_committer = create_default_text_committer()
+        return self.text_committer
 
     def _clear_text(self) -> None:
         if self.worker is not None and self.worker.isRunning():
