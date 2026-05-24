@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -49,7 +50,12 @@ class TencentAsrUrlBuilder:
         timestamp = int(time.time() if now is None else now)
         request_nonce = int(timestamp if nonce is None else nonce)
         path = TENCENT_ASR_PATH.format(appid=self.credentials.appid)
-        params = self._query_params(config, timestamp, request_nonce)
+        params = self._query_params(
+            config,
+            timestamp=timestamp,
+            nonce=request_nonce,
+            voice_id=_resolve_voice_id(config, request_nonce),
+        )
         signature = _sign_query(
             host=self.host,
             path=path,
@@ -62,8 +68,10 @@ class TencentAsrUrlBuilder:
     def _query_params(
         self,
         config: AsrSessionConfig,
+        *,
         timestamp: int,
         nonce: int,
+        voice_id: str,
     ) -> dict[str, str | int]:
         params: dict[str, str | int] = {
             "engine_model_type": config.engine,
@@ -75,6 +83,7 @@ class TencentAsrUrlBuilder:
             "timestamp": timestamp,
             "vad_silence_time": 1000,
             "voice_format": 1,
+            "voice_id": voice_id,
         }
         hotword_list = format_hotword_list(config.hotwords)
         if hotword_list:
@@ -206,7 +215,7 @@ def _sign_query(
     params: dict[str, str | int],
     secret_key: str,
 ) -> str:
-    sorted_query = urlencode(sorted(params.items()))
+    sorted_query = "&".join(f"{key}={value}" for key, value in sorted(params.items()))
     payload = f"{host}{path}?{sorted_query}"
     digest = hmac.new(
         secret_key.encode("utf-8"),
@@ -214,3 +223,9 @@ def _sign_query(
         hashlib.sha1,
     ).digest()
     return base64.b64encode(digest).decode("utf-8")
+
+
+def _resolve_voice_id(config: AsrSessionConfig, nonce: int) -> str:
+    if config.client_session_id:
+        return config.client_session_id
+    return f"maibi-{nonce}-{uuid.uuid4().hex[:12]}"

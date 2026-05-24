@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -39,7 +39,7 @@ def test_create_asr_session_returns_short_lived_session() -> None:
     payload = response.json()
     assert payload["provider"] == "tencent"
     assert payload["websocket_url"].startswith("wss://asr.cloud.tencent.com/asr/v2/123456?")
-    assert datetime.fromisoformat(payload["expires_at"]) > datetime.now(UTC)
+    assert datetime.fromisoformat(payload["expires_at"]) > datetime.now(timezone.utc)
 
 
 def test_create_asr_session_rejects_unsupported_provider() -> None:

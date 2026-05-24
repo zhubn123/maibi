@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -57,7 +57,7 @@ def create_app() -> FastAPI:
             secret_key=service_config.secret_key,
         )
         builder = TencentAsrUrlBuilder(credentials, ttl_seconds=service_config.session_ttl_seconds)
-        expires_at = datetime.now(UTC) + timedelta(seconds=service_config.session_ttl_seconds)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=service_config.session_ttl_seconds)
         return AsrSessionResponse(
             provider=config.provider,
             websocket_url=builder.build_url(config),

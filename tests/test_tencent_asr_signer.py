@@ -47,6 +47,7 @@ def test_tencent_url_builder_adds_expected_default_params() -> None:
     assert params["timestamp"] == ["1700000000"]
     assert params["expired"] == ["1700000300"]
     assert params["nonce"] == ["42"]
+    assert params["voice_id"] == ["maibi-42-3c7d1d5168a0"] or params["voice_id"][0].startswith("maibi-42-")
     assert params["hotword_list"] == ["麦笔|8"]
     assert params["signature"]
 
@@ -65,6 +66,7 @@ def test_tencent_url_signature_is_deterministic_for_fixed_inputs() -> None:
         now=1_700_000_000,
         nonce=42,
     )
+    assert "voice_id=session-1" in builder.build_url(config, now=1_700_000_000, nonce=42)
 
 
 def test_redact_signed_url_hides_sensitive_query_values() -> None:
