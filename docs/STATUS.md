@@ -56,16 +56,19 @@
 - 本地提交：`Stream demo audio in real time`
   - 状态：已提交
   - 内容：`client/session_runner.py` 改为 WebSocket session 建立后再消费音频源，音频帧产出后立即发送，同时并发接收 ASR 事件；demo worker 在录音结束后进入 processing 状态
+- 本地提交：`Accumulate indexed ASR preview text`
+  - 状态：已提交
+  - 内容：ASR 事件增加句段序号，腾讯云事件解析 `result.index`，UI 按句段累积 stable/final 文本，partial 只作为当前句段预览，避免语音停顿后清掉前文
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收。后续还需要继续打磨实时 partial/stable 展示、错误保留文本、取消和清除语义。
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本。后续还需要继续打磨错误保留文本、取消和清除语义。
 
 ## 下一步
 
-1. 继续打磨 `client/demo_app.py` 的输入法级交互：实时 partial/stable 展示、错误保留文本、清除只重置状态不隐藏窗口。
+1. 继续打磨 `client/demo_app.py` 的输入法级交互：错误保留文本、清除只重置状态不隐藏窗口、取消语义。
 2. 完成后再做 `PR #13`：文本上屏能力。
 3. 之后再补全全局快捷键、托盘交互和浮窗闭环。
 

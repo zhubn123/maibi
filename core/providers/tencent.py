@@ -176,7 +176,8 @@ def parse_asr_event(message: str) -> AsrEvent:
 
     result = payload.get("result", {})
     text = str(result.get("voice_text_str", ""))
-    final = bool(result.get("final", 0))
+    segment_index = _optional_int(result.get("index"))
+    final = bool(result.get("final", payload.get("final", 0)))
     stable = final or result.get("slice_type") == 2
     event_type = (
         AsrEventType.FINAL if final else AsrEventType.STABLE if stable else AsrEventType.PARTIAL
@@ -186,6 +187,7 @@ def parse_asr_event(message: str) -> AsrEvent:
         text=text,
         stable=stable,
         final=final,
+        segment_index=segment_index,
     )
 
 
@@ -229,3 +231,12 @@ def _resolve_voice_id(config: AsrSessionConfig, nonce: int) -> str:
     if config.client_session_id:
         return config.client_session_id
     return f"maibi-{nonce}-{uuid.uuid4().hex[:12]}"
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

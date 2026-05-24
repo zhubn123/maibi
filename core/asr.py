@@ -20,6 +20,7 @@ class AsrEvent:
     text: str = ""
     stable: bool = False
     final: bool = False
+    segment_index: int | None = None
     latency_ms: int | None = None
     error_code: str | None = None
 

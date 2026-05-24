@@ -44,12 +44,18 @@ class ClientUiState:
     partial_text: str = ""
     stable_text: str = ""
     final_text: str = ""
+    active_segment_index: int | None = None
+    active_segment_text: str = ""
     error_code: str | None = None
     error_message: str | None = None
 
     @property
     def active_text(self) -> str:
-        return self.final_text or self.stable_text or self.partial_text
+        if self.final_text:
+            return self.final_text
+        if self.stable_text and self.partial_text and self.active_segment_index is not None:
+            return _join_text(state_text=self.stable_text, event_text=self.partial_text)
+        return self.stable_text or self.partial_text
 
     @property
     def confirmable_text(self) -> str:
@@ -137,7 +143,6 @@ def begin_processing(state: ClientUiState) -> ClientUiState:
     return replace(
         state,
         mode=UiMode.PROCESSING,
-        partial_text="",
         error_code=None,
         error_message=None,
     )
@@ -160,32 +165,41 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
         )
 
     if event.final or event.type == AsrEventType.FINAL:
+        final_text = _merge_committed_text(state, event)
         return replace(
             state,
             mode=UiMode.FINAL,
             partial_text="",
-            stable_text=event.text,
-            final_text=event.text,
+            stable_text=final_text,
+            final_text=final_text,
+            active_segment_index=event.segment_index,
+            active_segment_text=event.text,
             error_code=None,
             error_message=None,
         )
 
     if event.stable or event.type == AsrEventType.STABLE:
+        stable_text = _merge_committed_text(state, event)
         return replace(
             state,
             mode=_live_result_mode(state),
-            partial_text=event.text,
-            stable_text=event.text,
+            partial_text="",
+            stable_text=stable_text,
             final_text="",
+            active_segment_index=event.segment_index,
+            active_segment_text=event.text,
             error_code=None,
             error_message=None,
         )
 
+    partial_text = _partial_text(state, event)
     return replace(
         state,
         mode=_live_result_mode(state),
-        partial_text=event.text,
+        partial_text=partial_text,
         final_text="",
+        active_segment_index=event.segment_index,
+        active_segment_text=event.text,
         error_code=None,
         error_message=None,
     )
@@ -269,6 +283,50 @@ def _live_result_mode(state: ClientUiState) -> UiMode:
     if state.mode == UiMode.PROCESSING:
         return UiMode.PROCESSING
     return UiMode.LISTENING
+
+
+def _merge_committed_text(state: ClientUiState, event: AsrEvent) -> str:
+    if not event.text:
+        return state.stable_text
+    if event.segment_index is None:
+        return event.text
+    if _same_segment(state, event):
+        return _replace_tail(
+            state.stable_text,
+            state.partial_text or state.active_segment_text,
+            event.text,
+        )
+    return _join_text(state_text=state.stable_text, event_text=event.text)
+
+
+def _partial_text(state: ClientUiState, event: AsrEvent) -> str:
+    if _same_segment(state, event):
+        return event.text
+    return event.text
+
+
+def _same_segment(state: ClientUiState, event: AsrEvent) -> bool:
+    return (
+        event.segment_index is not None
+        and state.active_segment_index is not None
+        and event.segment_index == state.active_segment_index
+    )
+
+
+def _replace_tail(stable_text: str, partial_text: str, event_text: str) -> str:
+    if partial_text and stable_text.endswith(partial_text):
+        return stable_text[: -len(partial_text)] + event_text
+    return _join_text(state_text=stable_text, event_text=event_text)
+
+
+def _join_text(*, state_text: str, event_text: str) -> str:
+    if not state_text:
+        return event_text
+    if not event_text:
+        return state_text
+    if state_text.endswith((" ", "\n")) or event_text.startswith((" ", "\n")):
+        return f"{state_text}{event_text}"
+    return f"{state_text}{event_text}"
 
 
 __all__ = [

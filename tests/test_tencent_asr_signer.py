@@ -95,21 +95,40 @@ def test_redact_signed_url_hides_sensitive_query_values() -> None:
 
 def test_parse_asr_event_maps_partial_stable_final_and_error() -> None:
     partial = parse_asr_event(
-        json.dumps({"code": 0, "result": {"voice_text_str": "中间结果", "slice_type": 1, "final": 0}})
+        json.dumps({"code": 0, "result": {"voice_text_str": "中间结果", "slice_type": 1, "final": 0, "index": 0}})
     )
     stable = parse_asr_event(
-        json.dumps({"code": 0, "result": {"voice_text_str": "稳定结果", "slice_type": 2, "final": 0}})
+        json.dumps({"code": 0, "result": {"voice_text_str": "稳定结果", "slice_type": 2, "final": 0, "index": 0}})
     )
     final = parse_asr_event(
-        json.dumps({"code": 0, "result": {"voice_text_str": "最终结果", "slice_type": 2, "final": 1}})
+        json.dumps({"code": 0, "result": {"voice_text_str": "最终结果", "slice_type": 2, "final": 1, "index": 1}})
     )
     error = parse_asr_event(json.dumps({"code": 4001, "message": "bad request"}))
 
     assert partial.type.value == "partial"
     assert stable.type.value == "stable"
     assert final.type.value == "final"
+    assert partial.segment_index == 0
+    assert stable.segment_index == 0
+    assert final.segment_index == 1
     assert error.type.value == "error"
     assert error.error_code == "4001"
+
+
+def test_parse_asr_event_accepts_tencent_top_level_final_flag() -> None:
+    event = parse_asr_event(
+        json.dumps(
+            {
+                "code": 0,
+                "final": 1,
+                "result": {"voice_text_str": "最终结果", "slice_type": 2, "index": 0},
+            }
+        )
+    )
+
+    assert event.type.value == "final"
+    assert event.final is True
+    assert event.segment_index == 0
 
 
 class _FakeTransport:

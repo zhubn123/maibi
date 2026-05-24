@@ -63,6 +63,65 @@ def test_partial_and_stable_asr_events_update_preview_without_confirming_partial
     assert intent_from_key(stable_state, "Enter").text == "这是稳定文本"
 
 
+def test_indexed_asr_events_accumulate_stable_segments_until_clear() -> None:
+    first = apply_asr_event(
+        begin_listening(),
+        AsrEvent(type=AsrEventType.STABLE, text="第一句。", stable=True, segment_index=0),
+    )
+    second_partial = apply_asr_event(
+        first,
+        AsrEvent(type=AsrEventType.PARTIAL, text="第二", segment_index=1),
+    )
+    second_stable = apply_asr_event(
+        second_partial,
+        AsrEvent(type=AsrEventType.STABLE, text="第二句。", stable=True, segment_index=1),
+    )
+
+    assert first.active_text == "第一句。"
+    assert second_partial.active_text == "第一句。第二"
+    assert second_partial.confirmable_text == "第一句。"
+    assert second_stable.active_text == "第一句。第二句。"
+    assert second_stable.confirmable_text == "第一句。第二句。"
+
+
+def test_indexed_partial_updates_replace_current_preview_tail() -> None:
+    first = apply_asr_event(
+        begin_listening(),
+        AsrEvent(type=AsrEventType.STABLE, text="第一句。", stable=True, segment_index=0),
+    )
+    partial = apply_asr_event(
+        first,
+        AsrEvent(type=AsrEventType.PARTIAL, text="第二", segment_index=1),
+    )
+    updated_partial = apply_asr_event(
+        partial,
+        AsrEvent(type=AsrEventType.PARTIAL, text="第二句", segment_index=1),
+    )
+
+    assert updated_partial.active_text == "第一句。第二句"
+    assert updated_partial.stable_text == "第一句。"
+    assert updated_partial.partial_text == "第二句"
+
+
+def test_indexed_final_replaces_same_segment_stable_text_without_duplication() -> None:
+    first = apply_asr_event(
+        begin_listening(),
+        AsrEvent(type=AsrEventType.STABLE, text="第一句。", stable=True, segment_index=0),
+    )
+    second_stable = apply_asr_event(
+        first,
+        AsrEvent(type=AsrEventType.STABLE, text="第二句。", stable=True, segment_index=1),
+    )
+    final = apply_asr_event(
+        second_stable,
+        AsrEvent(type=AsrEventType.FINAL, text="第二句。", stable=True, final=True, segment_index=1),
+    )
+
+    assert second_stable.active_text == "第一句。第二句。"
+    assert final.active_text == "第一句。第二句。"
+    assert final.final_text == "第一句。第二句。"
+
+
 def test_release_hotkey_enters_processing_and_keeps_stable_text_confirmable() -> None:
     listening = begin_listening()
     stable_state = apply_asr_event(
