@@ -71,6 +71,14 @@ python -m pip install -e ".[client]"
 python -m client.demo_app
 ```
 
+demo 使用方式：
+
+- 启动本地签名服务后打开 demo 壳。
+- 先把光标放到 Notepad、Chrome 输入框等目标应用中。
+- 按住“按住说话”录音，松开后等待最终识别。
+- 有稳定或最终文本后，点击“确认上屏”或按 `Enter` 把文本粘贴到当前光标位置。
+- 点击“复制”只复制浮窗文本；点击“清除”清空当前浮窗状态。
+
 腾讯云本地配置：
 
 - 示例文件：`server/config.example.json`

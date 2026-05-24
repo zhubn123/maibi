@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from client.ui_state import ClientUiState, UiMode
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from client.demo_app import DemoWindow
@@ -77,6 +78,18 @@ def test_demo_window_copy_action_shows_success_notice() -> None:
         window.close()
 
 
+def test_demo_window_uses_non_focus_tool_window_flags() -> None:
+    _app()
+    window = DemoWindow()
+    try:
+        assert bool(window.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus)
+        assert bool(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        assert window.focusPolicy().name == "NoFocus"
+        assert window.confirm_button.focusPolicy().name == "NoFocus"
+    finally:
+        window.close()
+
+
 def test_demo_window_enter_commits_text_and_returns_to_idle() -> None:
     _app()
     committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
@@ -89,6 +102,25 @@ def test_demo_window_enter_commits_text_and_returns_to_idle() -> None:
         assert committer.committed_text == "上屏文本"
         assert window.state.mode == UiMode.IDLE
         assert window.state.active_text == ""
+    finally:
+        window.close()
+
+
+def test_demo_window_confirm_button_is_visible_entry_for_commit() -> None:
+    _app()
+    committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
+    window = DemoWindow(text_committer=committer)
+    try:
+        window.state = ClientUiState(mode=UiMode.FINAL, stable_text="按钮上屏", final_text="按钮上屏")
+        window._render()
+
+        assert window.confirm_button.isEnabled() is True
+        assert window.confirm_button.text() == "确认上屏"
+
+        window.confirm_button.click()
+
+        assert committer.committed_text == "按钮上屏"
+        assert window.state.mode == UiMode.IDLE
     finally:
         window.close()
 

@@ -68,6 +68,9 @@
 - 本地提交：`Add clipboard paste text committer`
   - 状态：已提交
   - 内容：新增剪贴板粘贴式文本上屏 committer，使用 pywin32 写入 Unicode 文本、发送 `Ctrl+V` 并尽量恢复原剪贴板；demo `Enter` 确认已接入，失败时保留浮窗文本
+- 本地提交：`Expose demo commit action`
+  - 状态：已提交
+  - 内容：demo 浮窗新增“确认上屏”按钮，窗口改为不抢焦点的置顶工具窗，并在 README 中补充 demo 使用方式；`Enter` 快捷确认仍保留
 
 ## 进行中
 
@@ -76,13 +79,13 @@
   - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已改为按住说话/松开结束，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
 - 文本上屏能力
   - 状态：开发中
-  - 内容：已新增剪贴板粘贴 committer 和 demo 确认接入，仍需在 Windows 10/11 的 Notepad、Word、Chrome 输入框、微信和企业微信等目标应用中手工验证剪贴板恢复和输入注入表现。
+  - 内容：已新增剪贴板粘贴 committer、demo 确认按钮和 `Enter` 快捷确认，demo 浮窗已尽量避免抢走目标输入框焦点；仍需在 Windows 10/11 的 Notepad、Word、Chrome 输入框、微信和企业微信等目标应用中手工验证剪贴板恢复和输入注入表现。
 
 ## 下一步
 
 1. 在 Windows 目标应用中手工验证 demo 的文本上屏、剪贴板恢复和失败保留文本。
 2. 根据手工验证结果补齐必要的上屏失败提示或重试入口。
-3. 之后再补全全局快捷键、托盘交互和浮窗闭环。
+3. 补全全局快捷键录音/取消/确认，让操作不依赖点击 demo 浮窗按钮。
 
 ## 执行规则
 

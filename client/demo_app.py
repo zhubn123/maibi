@@ -110,6 +110,10 @@ class DemoWindow(QMainWindow):
         self.setWindowTitle("Maibi")
         self.setFixedSize(640, 154)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.Tool, True)
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         self.shell = QFrame()
@@ -123,8 +127,11 @@ class DemoWindow(QMainWindow):
         self.helper_text.setWordWrap(True)
 
         self.hold_button = QPushButton("按住说话")
+        self.confirm_button = QPushButton("确认上屏")
         self.copy_button = QPushButton("复制")
         self.clear_button = QPushButton("清除")
+        for button in (self.hold_button, self.confirm_button, self.copy_button, self.clear_button):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._build_ui()
         self._connect_signals()
@@ -188,7 +195,7 @@ class DemoWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.setSpacing(8)
-        for button in (self.hold_button, self.copy_button, self.clear_button):
+        for button in (self.hold_button, self.confirm_button, self.copy_button, self.clear_button):
             controls.addWidget(button)
         controls.addStretch(1)
         shell_layout.addLayout(controls)
@@ -198,6 +205,7 @@ class DemoWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.hold_button.pressed.connect(self._start_recording)
         self.hold_button.released.connect(self._stop_recording)
+        self.confirm_button.clicked.connect(self._confirm_preview_text)
         self.copy_button.clicked.connect(self._copy_preview_text)
         self.clear_button.clicked.connect(self._clear_text)
 
@@ -400,6 +408,8 @@ class DemoWindow(QMainWindow):
         self.primary_text.setText(floating_view.primary_text or "按住说话，松开结束")
         self.helper_text.setText(floating_view.helper_text)
         self.hold_button.setEnabled(True)
+        self.confirm_button.setEnabled(floating_view.can_confirm)
+        self.confirm_button.setText(floating_view.confirm_action_text)
         self.copy_button.setEnabled(floating_view.can_copy)
         self.clear_button.setEnabled(self.state.mode != UiMode.IDLE or self.worker is not None)
 
