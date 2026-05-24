@@ -1,6 +1,6 @@
 import pytest
 
-from client.text_commit import ClipboardPasteCommitter
+from client.text_commit import ClipboardPasteCommitter, Win32WindowTargeter
 
 
 class _FakeClipboard:
@@ -48,6 +48,50 @@ class _FakeTargeter:
 
     def restore_foreground(self, handle: int | None) -> None:
         self.restored.append(handle)
+
+
+class _FakeWin32Api:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, int | bool]] = []
+
+    def GetCurrentThreadId(self) -> int:
+        return 100
+
+
+class _FakeWin32Con:
+    SW_RESTORE = 9
+
+
+class _FakeWin32Gui:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+        self.foreground = 11
+
+    def GetForegroundWindow(self) -> int:
+        return self.foreground
+
+    def ShowWindow(self, handle: int, command: int) -> None:
+        self.calls.append(("ShowWindow", handle))
+
+    def BringWindowToTop(self, handle: int) -> None:
+        self.calls.append(("BringWindowToTop", handle))
+
+    def SetForegroundWindow(self, handle: int) -> None:
+        self.calls.append(("SetForegroundWindow", handle))
+
+    def SetFocus(self, handle: int) -> None:
+        self.calls.append(("SetFocus", handle))
+
+
+class _FakeWin32Process:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, int, bool]] = []
+
+    def GetWindowThreadProcessId(self, handle: int) -> tuple[int, int]:
+        return (handle + 1000, 1)
+
+    def AttachThreadInput(self, current_thread: int, target_thread: int, attach: bool) -> None:
+        self.calls.append(("AttachThreadInput", current_thread, target_thread, attach))
 
 
 def _committer(
@@ -139,3 +183,26 @@ def test_clipboard_paste_committer_reports_restore_failure_after_paste() -> None
     assert result.ok is False
     assert result.error_code == "clipboard_restore_failed"
     assert keyboard.pasted is True
+
+
+def test_win32_window_targeter_restores_foreground_window_with_thread_attach() -> None:
+    api = _FakeWin32Api()
+    con = _FakeWin32Con()
+    gui = _FakeWin32Gui()
+    process = _FakeWin32Process()
+    targeter = Win32WindowTargeter(api=api, con=con, gui=gui, process=process)
+
+    targeter.restore_foreground(42)
+
+    assert gui.calls == [
+        ("ShowWindow", 42),
+        ("BringWindowToTop", 42),
+        ("SetForegroundWindow", 42),
+        ("SetFocus", 42),
+    ]
+    assert process.calls == [
+        ("AttachThreadInput", 100, 1011, True),
+        ("AttachThreadInput", 100, 1042, True),
+        ("AttachThreadInput", 100, 1042, False),
+        ("AttachThreadInput", 100, 1011, False),
+    ]

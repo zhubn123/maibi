@@ -136,18 +136,64 @@ class Win32PasteKeyboard:
 
 
 class Win32WindowTargeter:
-    def __init__(self) -> None:
-        import win32gui
+    def __init__(
+        self,
+        *,
+        api=None,
+        con=None,
+        gui=None,
+        process=None,
+    ) -> None:
+        if api is None or con is None or gui is None or process is None:
+            import win32api
+            import win32con
+            import win32gui
+            import win32process
 
-        self._gui = win32gui
+            api = win32api
+            con = win32con
+            gui = win32gui
+            process = win32process
+
+        self._api = api
+        self._con = con
+        self._gui = gui
+        self._process = process
 
     def capture_foreground(self) -> int | None:
         handle = self._gui.GetForegroundWindow()
         return int(handle) if handle else None
 
     def restore_foreground(self, handle: int | None) -> None:
-        if handle:
+        if not handle:
+            return
+
+        self._gui.ShowWindow(handle, self._con.SW_RESTORE)
+        current_foreground = self._gui.GetForegroundWindow()
+        current_thread_id = (
+            self._process.GetWindowThreadProcessId(current_foreground)[0]
+            if current_foreground
+            else 0
+        )
+        target_thread_id = self._process.GetWindowThreadProcessId(handle)[0]
+        current_thread = self._api.GetCurrentThreadId()
+        attached_foreground = False
+        attached_target = False
+        try:
+            if current_thread_id and current_thread_id != current_thread:
+                self._process.AttachThreadInput(current_thread, current_thread_id, True)
+                attached_foreground = True
+            if target_thread_id and target_thread_id != current_thread:
+                self._process.AttachThreadInput(current_thread, target_thread_id, True)
+                attached_target = True
+            self._gui.BringWindowToTop(handle)
             self._gui.SetForegroundWindow(handle)
+            self._gui.SetFocus(handle)
+        finally:
+            if attached_target:
+                self._process.AttachThreadInput(current_thread, target_thread_id, False)
+            if attached_foreground:
+                self._process.AttachThreadInput(current_thread, current_thread_id, False)
 
 
 def create_default_text_committer() -> ClipboardPasteCommitter:
