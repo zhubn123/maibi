@@ -26,6 +26,7 @@ class _FakeCommitter:
 
 class _FakeHotkeyBridge(QObject):
     action_received = Signal(str)
+    start_failed = Signal(str)
 
     def __init__(self, active_getter, parent=None) -> None:  # type: ignore[no-untyped-def]
         super().__init__(parent)
@@ -41,6 +42,9 @@ class _FakeHotkeyBridge(QObject):
 
     def emit_action(self, action: HotkeyAction) -> None:
         self.action_received.emit(action.value)
+
+    def emit_start_failed(self, message: str) -> None:
+        self.start_failed.emit(message)
 
 
 class _FakeWindowTargeter:
@@ -78,6 +82,11 @@ def _app() -> QApplication:
     if app is None:
         app = QApplication([])
     return app
+
+
+def _flush_events() -> None:
+    app = _app()
+    app.processEvents()
 
 
 def test_demo_window_session_failure_preserves_preview_text_for_copy() -> None:
@@ -194,10 +203,65 @@ def test_demo_window_global_hotkey_actions_drive_recording_methods() -> None:
 
         bridge.emit_action(HotkeyAction.START_RECORDING)
         bridge.emit_action(HotkeyAction.STOP_RECORDING)
+        _flush_events()
 
         assert calls == ["start", "stop"]
         assert window.commit_target_handle == 55
         assert targeter.captured == 1
+    finally:
+        window.close()
+
+
+def test_demo_window_start_recording_shows_wait_notice_before_capture_ready() -> None:
+    _app()
+    window, _bridge = _window(window_targeter=_FakeWindowTargeter(55))
+    try:
+        class _FakeWorker:
+            def __init__(self, parent=None) -> None:
+                self.state_changed = _FakeSignal()
+                self.capture_ready = _FakeSignal()
+                self.event_received = _FakeSignal()
+                self.session_failed = _FakeSignal()
+                self.session_finished = _FakeSignal()
+                self.finished = _FakeSignal()
+                self.started = False
+
+            def start(self) -> None:
+                self.started = True
+
+            def isRunning(self) -> bool:
+                return self.started
+
+        class _FakeSignal:
+            def connect(self, _callback) -> None:  # type: ignore[no-untyped-def]
+                return None
+
+        from client import demo_app as demo_module
+
+        original_worker = demo_module.SessionWorker
+        demo_module.SessionWorker = _FakeWorker  # type: ignore[assignment]
+        try:
+            window._start_recording()
+        finally:
+            demo_module.SessionWorker = original_worker  # type: ignore[assignment]
+
+        assert window.state.mode == UiMode.LISTENING
+        assert window.state.notice_message == "正在连接，请等待提示后再说"
+    finally:
+        window.close()
+
+
+def test_demo_window_capture_ready_updates_notice() -> None:
+    _app()
+    window, _bridge = _window()
+    try:
+        window.worker_generation = 2
+        window.state = ClientUiState(mode=UiMode.LISTENING, notice_message="正在连接，请等待提示后再说")
+
+        window._on_capture_ready(2)
+
+        assert window.state.notice_message == "可以开始说话"
+        assert window.helper_text.text() == "可以开始说话"
     finally:
         window.close()
 
@@ -211,6 +275,7 @@ def test_demo_window_global_hotkey_confirm_commits_text() -> None:
         window.state = ClientUiState(mode=UiMode.FINAL, stable_text="热键上屏", final_text="热键上屏")
 
         bridge.emit_action(HotkeyAction.CONFIRM)
+        _flush_events()
 
         assert committer.committed_text == "热键上屏"
         assert committer.target_handle == 66
@@ -226,10 +291,54 @@ def test_demo_window_global_hotkey_cancel_discards_active_text() -> None:
         window.state = ClientUiState(mode=UiMode.PROCESSING, partial_text="取消文本")
 
         bridge.emit_action(HotkeyAction.CANCEL)
+        _flush_events()
 
         assert window.state.mode == UiMode.CANCELLED
         assert window.state.active_text == ""
     finally:
+        window.close()
+
+
+def test_demo_window_global_hotkey_failure_is_visible() -> None:
+    _app()
+    window, bridge = _window()
+    try:
+        bridge.emit_start_failed("global_hotkey_hook_failed:5")
+        _flush_events()
+
+        assert window.state.mode == UiMode.ERROR
+        assert window.state.error_code == "global_hotkey_failed"
+        assert "global_hotkey_hook_failed:5" in window.helper_text.text()
+    finally:
+        window.close()
+
+
+def test_demo_window_cancel_keeps_worker_until_thread_finishes() -> None:
+    _app()
+    window, _bridge = _window()
+
+    class _FakeWorker:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def isRunning(self) -> bool:
+            return True
+
+        def request_cancel(self) -> None:
+            self.cancelled = True
+
+    worker = _FakeWorker()
+    try:
+        window.worker = worker  # type: ignore[assignment]
+        window.state = ClientUiState(mode=UiMode.PROCESSING, stable_text="待取消")
+
+        window._cancel_input()
+
+        assert worker.cancelled is True
+        assert window.worker is worker
+        assert window.state.mode == UiMode.CANCELLED
+    finally:
+        window.worker = None
         window.close()
 
 

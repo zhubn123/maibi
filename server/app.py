@@ -31,11 +31,11 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Maibi Signing Service", version="0.1.0")
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/v1/asr/session", response_model=AsrSessionResponse)
-    def create_asr_session(request: AsrSessionRequest) -> AsrSessionResponse:
+    async def create_asr_session(request: AsrSessionRequest) -> AsrSessionResponse:
         if request.provider not in SUPPORTED_PROVIDERS:
             raise HTTPException(status_code=400, detail="unsupported provider")
 

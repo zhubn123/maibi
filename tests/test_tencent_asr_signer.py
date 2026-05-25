@@ -9,6 +9,7 @@ from core.providers.tencent import (
     TencentAsrCredentials,
     TencentAsrUrlBuilder,
     WebSocketsTencentTransport,
+    TencentAsrStreamClosed,
     format_hotword_list,
     parse_asr_event,
     redact_signed_url,
@@ -42,6 +43,7 @@ def test_tencent_url_builder_adds_expected_default_params() -> None:
     assert params["voice_format"] == ["1"]
     assert params["needvad"] == ["1"]
     assert params["vad_silence_time"] == ["1000"]
+    assert params["convert_num_mode"] == ["1"]
     assert params["filter_modal"] == ["1"]
     assert params["secretid"] == ["secret-id"]
     assert params["timestamp"] == ["1700000000"]
@@ -247,5 +249,35 @@ def test_websockets_transport_normalizes_text_and_bytes_messages() -> None:
         assert first == '{"code":0}'
         assert second == '{"code":0}'
         assert fake.closed is True
+
+    asyncio.run(scenario())
+
+
+def test_websockets_transport_normalizes_connection_closed_exceptions() -> None:
+    class ConnectionClosedOK(Exception):
+        code = 1000
+        reason = "normal"
+
+    class _ClosingWebSocket:
+        async def recv(self):
+            raise ConnectionClosedOK()
+
+        async def send(self, _data: bytes) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+    transport = WebSocketsTencentTransport(_ClosingWebSocket())
+
+    async def scenario() -> None:
+        try:
+            await transport.recv()
+        except TencentAsrStreamClosed as exc:
+            assert exc.clean is True
+            assert exc.code == 1000
+            assert exc.reason == "normal"
+        else:
+            raise AssertionError("expected TencentAsrStreamClosed")
 
     asyncio.run(scenario())

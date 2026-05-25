@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from ctypes import wintypes
 
 LRESULT = ctypes.c_ssize_t
 ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
+LOGGER = logging.getLogger(__name__)
 
 
 class HotkeyAction(StrEnum):
@@ -49,10 +51,21 @@ class HotkeyState:
     def handle(self, event: HotkeyEvent) -> HotkeyDecision:
         if event.pressed:
             self._pressed_keys.add(event.key)
-            return self._handle_pressed(event.key)
+            decision = self._handle_pressed(event.key)
+        else:
+            self._pressed_keys.discard(event.key)
+            decision = self._handle_released(event.key)
 
-        self._pressed_keys.discard(event.key)
-        return self._handle_released(event.key)
+        LOGGER.debug(
+            "hotkey event key=%s state=%s pressed_keys=%s recording_hotkey_down=%s action=%s suppress=%s",
+            event.key.value,
+            "down" if event.pressed else "up",
+            _format_pressed_keys(self._pressed_keys),
+            self._recording_hotkey_down,
+            decision.action.value if decision.action is not None else "-",
+            decision.suppress,
+        )
+        return decision
 
     def _handle_pressed(self, key: HotkeyKey) -> HotkeyDecision:
         if key in {HotkeyKey.ENTER, HotkeyKey.ESCAPE} and self.active_getter():
@@ -119,22 +132,45 @@ class Win32KeyboardHook:
         self._hook_handle = None
         self._callback = None
         self._ready = threading.Event()
+        self._start_error: RuntimeError | None = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
+            LOGGER.info("hotkey hook start skipped because hook thread is already running")
             return
+        LOGGER.info("hotkey hook starting")
         self._ready.clear()
+        self._start_error = None
         self._thread = threading.Thread(target=self._run, name="maibi-hotkey-hook", daemon=True)
         self._thread.start()
         self._ready.wait(timeout=1.0)
+        if self._start_error is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+            LOGGER.error("hotkey hook failed to start: %s", self._start_error)
+            raise self._start_error
+        LOGGER.info("hotkey hook ready thread_id=%s", self._thread_id)
+
+    def run_forever(self) -> None:
+        if self._hook_handle:
+            LOGGER.info("hotkey hook run_forever skipped because hook is already installed")
+            return
+        LOGGER.info("hotkey hook run_forever starting on current thread")
+        self._start_error = None
+        self._run()
+        if self._start_error is not None:
+            LOGGER.error("hotkey hook run_forever failed: %s", self._start_error)
+            raise self._start_error
 
     def stop(self) -> None:
+        LOGGER.info("hotkey hook stopping thread_id=%s", self._thread_id)
         if self._thread_id is not None:
             ctypes.windll.user32.PostThreadMessageW(self._thread_id, self.WM_QUIT, 0, 0)
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
         self._thread_id = None
+        LOGGER.info("hotkey hook stopped")
 
     def _run(self) -> None:
         user32 = _user32()
@@ -166,9 +202,13 @@ class Win32KeyboardHook:
             kernel32.GetModuleHandleW(None),
             0,
         )
-        self._ready.set()
         if not self._hook_handle:
+            error_code = ctypes.get_last_error()
+            self._start_error = RuntimeError(f"global_hotkey_hook_failed:{error_code}")
+            self._ready.set()
             return
+        LOGGER.info("hotkey hook installed thread_id=%s", self._thread_id)
+        self._ready.set()
 
         msg = _MSG()
         try:
@@ -178,6 +218,7 @@ class Win32KeyboardHook:
         finally:
             user32.UnhookWindowsHookEx(self._hook_handle)
             self._hook_handle = None
+            LOGGER.info("hotkey hook uninstalled thread_id=%s", self._thread_id)
 
     def _event_from_message(self, wparam: int, lparam: int) -> HotkeyEvent | None:
         keyboard = ctypes.cast(lparam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
@@ -232,6 +273,12 @@ def _key_from_vk(vk_code: int) -> HotkeyKey | None:
         Win32KeyboardHook.VK_ESCAPE: HotkeyKey.ESCAPE,
     }
     return key_map.get(vk_code)
+
+
+def _format_pressed_keys(keys: set[HotkeyKey]) -> str:
+    if not keys:
+        return "-"
+    return "+".join(sorted(key.value for key in keys))
 
 
 def create_default_hotkey_listener(

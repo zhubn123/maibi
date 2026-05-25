@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from collections.abc import Iterator
 
 from client.audio_capture import InMemoryAudioSource
@@ -14,6 +15,7 @@ from core.providers.tencent import (
     TencentAsrCredentials,
     TencentAsrProvider,
     TencentAsrUrlBuilder,
+    WebSocketsTencentTransport,
 )
 
 
@@ -198,3 +200,101 @@ def test_stream_session_connects_before_consuming_audio_source() -> None:
     assert events.index("send") < events.index("source_done")
     assert events.index("source_done") < len(events)
     assert processing_events == ["processing"]
+
+
+def test_stream_session_cancel_closes_transport_without_finish_marker() -> None:
+    class _CancelAfterChunkSource:
+        def __init__(self, cancel_event: threading.Event, frame: bytes) -> None:
+            self.cancel_event = cancel_event
+            self.frame = frame
+
+        def chunks(self) -> Iterator[bytes]:
+            yield self.frame
+            self.cancel_event.set()
+            yield self.frame
+
+    cancel_event = threading.Event()
+    config = AsrSessionConfig()
+    transport = _FakeTransport(
+        [json.dumps({"code": 0, "result": {"voice_text_str": "不应等待", "slice_type": 2, "final": 1}})]
+    )
+    dialer = _FakeDialer(transport)
+    provider = TencentAsrProvider(
+        TencentAsrUrlBuilder(
+            TencentAsrCredentials(
+                appid="123456",
+                secret_id="secret-id",
+                secret_key="secret-key",
+            )
+        ),
+        dialer=dialer,
+    )
+
+    result = asyncio.run(
+        run_tencent_stream_session(
+            provider,
+            config,
+            _CancelAfterChunkSource(cancel_event, b"\x00" * config.frame_size_bytes),
+            cancel_event=cancel_event,
+        )
+    )
+
+    assert result.sent_frames == 1
+    assert result.events == []
+    assert transport.closed is True
+    assert all(json.loads(data.decode("utf-8")) != {"type": "end"} for data in transport.sent if data.startswith(b"{"))
+
+
+def test_stream_session_treats_clean_close_after_stable_event_as_final() -> None:
+    class ConnectionClosedOK(Exception):
+        code = 1000
+        reason = "normal"
+
+    class _ClosingWebSocket:
+        def __init__(self, messages: list[str]) -> None:
+            self.messages = list(messages)
+            self.sent: list[bytes] = []
+            self.closed = False
+
+        async def send(self, data: bytes) -> None:
+            self.sent.append(data)
+
+        async def recv(self) -> str:
+            if self.messages:
+                return self.messages.pop(0)
+            raise ConnectionClosedOK()
+
+        async def close(self) -> None:
+            self.closed = True
+
+    config = AsrSessionConfig()
+    websocket = _ClosingWebSocket(
+        [json.dumps({"code": 0, "result": {"voice_text_str": "稳定结果", "slice_type": 2, "final": 0, "index": 0}})]
+    )
+    transport = WebSocketsTencentTransport(websocket)
+    dialer = _FakeDialer(transport)
+    provider = TencentAsrProvider(
+        TencentAsrUrlBuilder(
+            TencentAsrCredentials(
+                appid="123456",
+                secret_id="secret-id",
+                secret_key="secret-key",
+            )
+        ),
+        dialer=dialer,
+    )
+    seen: list[str] = []
+
+    result = asyncio.run(
+        run_tencent_stream_session(
+            provider,
+            config,
+            InMemoryAudioSource.from_chunks([b"\x00" * config.frame_size_bytes]),
+            on_event=lambda event: seen.append(event.type.value),
+        )
+    )
+
+    assert seen == ["stable", "final"]
+    assert result.final_state.final_text == "稳定结果"
+    assert result.final_state.mode.value == "final"
+    assert json.loads(websocket.sent[-1].decode("utf-8")) == {"type": "end"}

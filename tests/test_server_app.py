@@ -1,22 +1,29 @@
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+import httpx
 
 from server.app import create_app
 
 
-def test_healthz_returns_ok() -> None:
-    client = TestClient(create_app())
+def _request(method: str, path: str, *, json: dict[str, object] | None = None) -> httpx.Response:
+    async def scenario() -> httpx.Response:
+        transport = httpx.ASGITransport(app=create_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.request(method, path, json=json)
 
-    response = client.get("/healthz")
+    return asyncio.run(scenario())
+
+
+def test_healthz_returns_ok() -> None:
+    response = _request("GET", "/healthz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
 def test_create_asr_session_returns_short_lived_session() -> None:
-    client = TestClient(create_app())
     with patch(
         "server.app._load_tencent_service_config",
         return_value=__import__("core").TencentAsrServiceConfig(
@@ -25,7 +32,8 @@ def test_create_asr_session_returns_short_lived_session() -> None:
             secret_key="secret-key",
         ),
     ):
-        response = client.post(
+        response = _request(
+            "POST",
             "/v1/asr/session",
             json={
                 "provider": "tencent",
@@ -43,9 +51,8 @@ def test_create_asr_session_returns_short_lived_session() -> None:
 
 
 def test_create_asr_session_rejects_unsupported_provider() -> None:
-    client = TestClient(create_app())
-
-    response = client.post(
+    response = _request(
+        "POST",
         "/v1/asr/session",
         json={
             "provider": "unknown",
@@ -60,9 +67,8 @@ def test_create_asr_session_rejects_unsupported_provider() -> None:
 
 
 def test_create_asr_session_rejects_invalid_hotword() -> None:
-    client = TestClient(create_app())
-
-    response = client.post(
+    response = _request(
+        "POST",
         "/v1/asr/session",
         json={
             "provider": "tencent",
@@ -77,7 +83,6 @@ def test_create_asr_session_rejects_invalid_hotword() -> None:
 
 
 def test_create_asr_session_requires_configured_credentials() -> None:
-    client = TestClient(create_app())
     with patch(
         "server.app._load_tencent_service_config",
         side_effect=__import__("fastapi").HTTPException(
@@ -85,7 +90,8 @@ def test_create_asr_session_requires_configured_credentials() -> None:
             detail="tencent_asr_credentials_not_configured",
         ),
     ):
-        response = client.post(
+        response = _request(
+            "POST",
             "/v1/asr/session",
             json={
                 "provider": "tencent",

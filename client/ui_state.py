@@ -124,7 +124,7 @@ _TRAY_ACTION_TEXT: dict[UiMode, str] = {
 
 _FLOATING_HELPER_TEXT: dict[UiMode, str] = {
     UiMode.IDLE: f"按住 {DEFAULT_HOTKEY_LABEL} 开始语音输入",
-    UiMode.LISTENING: "松开快捷键后等待最终结果，Esc 取消，Enter 确认稳定文本",
+    UiMode.LISTENING: "正在连接，等待就绪后开始说话；Esc 取消",
     UiMode.PROCESSING: "正在等待最终识别结果，Esc 可取消本次输入",
     UiMode.ERROR: "请重试；如有已识别文本，可手动复制",
     UiMode.CANCELLED: "本次输入已取消，不会写入文本",

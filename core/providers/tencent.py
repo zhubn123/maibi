@@ -18,6 +18,17 @@ TENCENT_ASR_SCHEME = "wss"
 DEFAULT_URL_TTL_SECONDS = 300
 
 
+class TencentAsrStreamClosed(Exception):
+    def __init__(self, *, code: int | None = None, reason: str = "") -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(f"tencent_asr_stream_closed:{code or 'unknown'}:{reason}".rstrip(":"))
+
+    @property
+    def clean(self) -> bool:
+        return self.code in {1000, 1001}
+
+
 @dataclass(frozen=True, slots=True)
 class TencentAsrCredentials:
     appid: str
@@ -76,6 +87,7 @@ class TencentAsrUrlBuilder:
         params: dict[str, str | int] = {
             "engine_model_type": config.engine,
             "expired": timestamp + self.ttl_seconds,
+            "convert_num_mode": 1,
             "filter_modal": 1,
             "needvad": 1,
             "nonce": nonce,
@@ -143,7 +155,15 @@ class WebSocketsTencentTransport:
         await self.websocket.send(data)  # type: ignore[attr-defined]
 
     async def recv(self) -> str:
-        message = await self.websocket.recv()  # type: ignore[attr-defined]
+        try:
+            message = await self.websocket.recv()  # type: ignore[attr-defined]
+        except Exception as exc:
+            if _looks_like_websocket_close(exc):
+                raise TencentAsrStreamClosed(
+                    code=_optional_int(getattr(exc, "code", None)),
+                    reason=str(getattr(exc, "reason", "") or ""),
+                ) from exc
+            raise
         if isinstance(message, bytes):
             return message.decode("utf-8")
         return str(message)
@@ -240,3 +260,10 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _looks_like_websocket_close(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    return name.startswith("ConnectionClosed") or (
+        hasattr(exc, "code") and hasattr(exc, "reason")
+    )

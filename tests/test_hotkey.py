@@ -1,4 +1,5 @@
 import ctypes
+import logging
 
 from client.hotkey import (
     HotkeyAction,
@@ -6,12 +7,14 @@ from client.hotkey import (
     HotkeyEvent,
     HotkeyKey,
     HotkeyState,
+    Win32KeyboardHook,
     _kernel32,
     _user32,
 )
 
 
-def test_ctrl_alt_space_press_and_release_emit_recording_actions_once() -> None:
+def test_ctrl_alt_space_press_and_release_emit_recording_actions_once(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="client.hotkey")
     state = HotkeyState()
 
     assert state.handle(HotkeyEvent(HotkeyKey.CONTROL, True)) == HotkeyDecision()
@@ -25,6 +28,9 @@ def test_ctrl_alt_space_press_and_release_emit_recording_actions_once() -> None:
         action=HotkeyAction.STOP_RECORDING,
         suppress=True,
     )
+    assert "hotkey event key=space state=down" in caplog.text
+    assert "action=start_recording suppress=True" in caplog.text
+    assert "action=stop_recording suppress=True" in caplog.text
 
 
 def test_releasing_modifier_also_stops_recording() -> None:
@@ -68,3 +74,30 @@ def test_win32_api_prototypes_are_configured_for_hook_calls() -> None:
     assert len(user32.GetMessageW.argtypes) == 4
     assert user32.DispatchMessageW.restype == ctypes.c_ssize_t
     assert kernel32.GetCurrentThreadId.restype is not None
+
+
+def test_win32_keyboard_hook_raises_when_hook_install_fails(monkeypatch) -> None:
+    class _FakeUser32:
+        def SetWindowsHookExW(self, *_args):
+            return None
+
+    class _FakeKernel32:
+        def GetCurrentThreadId(self):
+            return 123
+
+        def GetModuleHandleW(self, _name):
+            return None
+
+    monkeypatch.setattr("client.hotkey._user32", lambda: _FakeUser32())
+    monkeypatch.setattr("client.hotkey._kernel32", lambda: _FakeKernel32())
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 5)
+
+    listener = Win32KeyboardHook(
+        state=HotkeyState(),
+        on_action=lambda _action: None,
+    )
+
+    listener._run()
+
+    assert listener._start_error is not None
+    assert str(listener._start_error) == "global_hotkey_hook_failed:5"

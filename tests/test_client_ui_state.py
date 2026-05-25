@@ -40,6 +40,7 @@ def test_listening_state_shows_pending_voice_copy_and_escape_cancel_intent() -> 
     assert floating.visible is True
     assert floating.status_text == "正在听写"
     assert floating.primary_text == "正在等待语音..."
+    assert "正在连接" in floating.helper_text
     assert escape_intent.kind == UiIntentKind.CANCEL_INPUT
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import threading
 import traceback
@@ -45,23 +46,43 @@ from core import AsrEvent, AsrEventType, AsrSessionConfig, Hotword
 from core.commit import TextCommitter
 from core.providers.tencent import WebSocketsTencentDialer
 
+LOGGER = logging.getLogger(__name__)
+
 
 class HotkeyBridge(QThread):
     action_received = Signal(str)
+    start_failed = Signal(str)
 
     def __init__(self, active_getter, parent: QWidget | None = None) -> None:  # type: ignore[no-untyped-def]
         super().__init__(parent)
         self._listener = create_default_hotkey_listener(
             active_getter=active_getter,
-            on_action=lambda action: self.action_received.emit(action.value),
+            on_action=self._emit_action,
         )
 
+    def _emit_action(self, action: HotkeyAction) -> None:
+        LOGGER.debug(
+            "demo hotkey bridge emit action=%s thread=%s",
+            action.value,
+            threading.current_thread().name,
+        )
+        self.action_received.emit(action.value)
+
     def run(self) -> None:
-        self._listener.start()
+        try:
+            run_forever = getattr(self._listener, "run_forever", None)
+            if run_forever is not None:
+                run_forever()
+                return
+            self._listener.start()
+        except Exception as exc:  # pragma: no cover - exercised through injected bridge
+            self.start_failed.emit(str(exc) or "全局快捷键启动失败")
+            return
         self.exec()
         self._listener.stop()
 
     def stop(self) -> None:
+        self._listener.stop()
         self.quit()
         self.wait(1000)
 
@@ -75,14 +96,20 @@ class DragState:
 class SessionWorker(QThread):
     event_received = Signal(object)
     state_changed = Signal(str)
+    capture_ready = Signal()
     session_failed = Signal(str)
     session_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._stop_requested = threading.Event()
+        self._cancel_requested = threading.Event()
 
     def request_stop(self) -> None:
+        self._stop_requested.set()
+
+    def request_cancel(self) -> None:
+        self._cancel_requested.set()
         self._stop_requested.set()
 
     def run(self) -> None:
@@ -93,28 +120,32 @@ class SessionWorker(QThread):
             )
             bootstrap = SessionBootstrapClient()
             session_info = await bootstrap.create_tencent_session(config)
-            source = SoundDeviceAudioSource(
-                SoundDeviceCaptureConfig(
-                    sample_rate_hz=config.sample_rate_hz,
-                    channels=config.channels,
-                    block_duration_ms=config.frame_duration_ms,
-                    max_chunks=None,
-                ),
-                stop_event=self._stop_requested,
-            )
+            LOGGER.info("session worker bootstrapped websocket_url received")
             await run_bootstrapped_tencent_stream_session(
                 websocket_url=session_info.websocket_url,
                 config=config,
-                source=source,
+                source=SoundDeviceAudioSource(
+                    SoundDeviceCaptureConfig(
+                        sample_rate_hz=config.sample_rate_hz,
+                        channels=config.channels,
+                        block_duration_ms=config.frame_duration_ms,
+                        max_chunks=None,
+                    ),
+                    stop_event=self._stop_requested,
+                ),
                 dialer=WebSocketsTencentDialer(),
                 on_event=lambda event: self.event_received.emit(event),
                 on_processing=lambda: self.state_changed.emit("processing"),
+                cancel_event=self._cancel_requested,
+                on_capture_ready=lambda: self.capture_ready.emit(),
             )
 
         try:
             asyncio.run(scenario())
         except Exception as exc:  # pragma: no cover
-            self.session_failed.emit(str(exc).strip() or traceback.format_exc(limit=1))
+            LOGGER.exception("session worker failed")
+            message = traceback.format_exc(limit=4).strip()
+            self.session_failed.emit(message or str(exc).strip())
             return
         self.session_finished.emit()
 
@@ -267,11 +298,21 @@ class DemoWindow(QMainWindow):
         if self.hotkey_bridge_factory is None:
             self.hotkey_bridge_factory = lambda active_getter, parent: HotkeyBridge(active_getter, parent)
         self.hotkey_bridge = self.hotkey_bridge_factory(self._hotkeys_active, self)
-        self.hotkey_bridge.action_received.connect(self._on_hotkey_action)
+        self.hotkey_bridge.action_received.connect(
+            self._on_hotkey_action,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        if hasattr(self.hotkey_bridge, "start_failed"):
+            self.hotkey_bridge.start_failed.connect(
+                self._on_hotkey_failed,
+                Qt.ConnectionType.QueuedConnection,
+            )
+        LOGGER.info("demo hotkey bridge starting")
         self.hotkey_bridge.start()
 
     def _stop_hotkeys(self) -> None:
         if self.hotkey_bridge is not None:
+            LOGGER.info("demo hotkey bridge stopping")
             self.hotkey_bridge.stop()
             self.hotkey_bridge = None
 
@@ -279,6 +320,15 @@ class DemoWindow(QMainWindow):
         return self.state.can_cancel or self.state.can_confirm
 
     def _on_hotkey_action(self, action_name: str) -> None:
+        LOGGER.info(
+            "demo hotkey action=%s mode=%s can_confirm=%s can_cancel=%s worker_running=%s thread=%s",
+            action_name,
+            self.state.mode.value,
+            self.state.can_confirm,
+            self.state.can_cancel,
+            self.worker is not None and self.worker.isRunning(),
+            threading.current_thread().name,
+        )
         action = HotkeyAction(action_name)
         if action == HotkeyAction.START_RECORDING:
             self._start_recording()
@@ -292,6 +342,18 @@ class DemoWindow(QMainWindow):
         if action == HotkeyAction.CANCEL:
             self._cancel_input()
             return
+
+    def _on_hotkey_failed(self, message: str) -> None:
+        LOGGER.error("demo hotkey failed: %s", message)
+        self.state = apply_asr_event(
+            self.state,
+            AsrEvent(
+                type=AsrEventType.ERROR,
+                text=message or "全局快捷键启动失败，请使用浮窗按钮",
+                error_code="global_hotkey_failed",
+            ),
+        )
+        self._render()
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -348,23 +410,35 @@ class DemoWindow(QMainWindow):
 
     def _start_recording(self) -> None:
         if self.worker is not None and self.worker.isRunning():
+            LOGGER.info("demo start recording ignored because worker is still running")
             return
 
         self.worker_generation += 1
         generation = self.worker_generation
         self.commit_target_handle = self._window_targeter().capture_foreground()
+        LOGGER.info(
+            "demo start recording generation=%s target_handle=%s",
+            generation,
+            self.commit_target_handle,
+        )
         self.state = begin_listening()
+        self.state = with_notice(self.state, "正在连接，请等待提示后再说")
         self._render()
-        self.worker = SessionWorker(self)
-        self.worker.state_changed.connect(lambda state_name: self._on_worker_state_changed(generation, state_name))
-        self.worker.event_received.connect(lambda event: self._on_event_received(generation, event))
-        self.worker.session_failed.connect(lambda message: self._on_session_failed(generation, message))
-        self.worker.session_finished.connect(lambda: self._on_session_finished(generation))
-        self.worker.start()
+        self.worker = SessionWorker(parent=self)
+        worker = self.worker
+        worker.state_changed.connect(lambda state_name: self._on_worker_state_changed(generation, state_name))
+        worker.capture_ready.connect(lambda: self._on_capture_ready(generation))
+        worker.event_received.connect(lambda event: self._on_event_received(generation, event))
+        worker.session_failed.connect(lambda message: self._on_session_failed(generation, message))
+        worker.session_finished.connect(lambda: self._on_session_finished(generation))
+        worker.finished.connect(lambda: self._on_worker_thread_finished(worker))
+        worker.start()
 
     def _stop_recording(self) -> None:
         if self.worker is None or not self.worker.isRunning():
+            LOGGER.info("demo stop recording ignored because no worker is running")
             return
+        LOGGER.info("demo stop recording generation=%s", self.worker_generation)
         self.worker.request_stop()
         self.state = begin_processing(self.state)
         self._render()
@@ -375,6 +449,13 @@ class DemoWindow(QMainWindow):
         if state_name == "processing":
             self.state = begin_processing(self.state)
             self._render()
+
+    def _on_capture_ready(self, generation: int) -> None:
+        if generation != self.worker_generation:
+            return
+        LOGGER.info("demo capture ready generation=%s", generation)
+        self.state = with_notice(self.state, "可以开始说话")
+        self._render()
 
     def _on_event_received(self, generation: int, event) -> None:
         if generation != self.worker_generation:
@@ -387,6 +468,11 @@ class DemoWindow(QMainWindow):
             return
         self.worker = None
         self._render()
+
+    def _on_worker_thread_finished(self, worker: SessionWorker) -> None:
+        if self.worker is worker:
+            self.worker = None
+            self._render()
 
     def _on_session_failed(self, generation: int, message: str) -> None:
         if generation != self.worker_generation:
@@ -405,12 +491,18 @@ class DemoWindow(QMainWindow):
     def _confirm_preview_text(self) -> None:
         intent = intent_from_key(self.state, "Enter")
         if not intent.commits_text:
+            LOGGER.info("demo confirm ignored mode=%s", self.state.mode.value)
             return
+        LOGGER.info(
+            "demo confirm requested mode=%s worker_running=%s target_handle=%s",
+            self.state.mode.value,
+            self.worker is not None and self.worker.isRunning(),
+            self.commit_target_handle,
+        )
         next_state = apply_user_intent(self.state, intent)
         if self.worker is not None and self.worker.isRunning():
-            self.worker.request_stop()
+            self.worker.request_cancel()
         self.worker_generation += 1
-        self.worker = None
         if intent.text:
             committer = self._text_committer()
             result = committer.commit(intent.text, target_handle=self.commit_target_handle)
@@ -435,11 +527,16 @@ class DemoWindow(QMainWindow):
     def _cancel_input(self) -> None:
         next_state = apply_user_intent(self.state, intent_from_key(self.state, "Esc"))
         if next_state == self.state:
+            LOGGER.info("demo cancel ignored mode=%s", self.state.mode.value)
             return
+        LOGGER.info(
+            "demo cancel requested mode=%s worker_running=%s",
+            self.state.mode.value,
+            self.worker is not None and self.worker.isRunning(),
+        )
         if self.worker is not None and self.worker.isRunning():
-            self.worker.request_stop()
+            self.worker.request_cancel()
         self.worker_generation += 1
-        self.worker = None
         self.commit_target_handle = None
         self.state = next_state
         self._render()
@@ -467,9 +564,8 @@ class DemoWindow(QMainWindow):
 
     def _clear_text(self) -> None:
         if self.worker is not None and self.worker.isRunning():
-            self.worker.request_stop()
+            self.worker.request_cancel()
         self.worker_generation += 1
-        self.worker = None
         self.commit_target_handle = None
         self.state = reset_to_idle()
         self._render()
@@ -507,6 +603,10 @@ class DemoWindow(QMainWindow):
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     window = DemoWindow()
