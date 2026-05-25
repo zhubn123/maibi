@@ -23,7 +23,7 @@ def test_idle_views_expose_tray_ready_state_and_hide_floating_window() -> None:
     floating = build_floating_window_view(state)
 
     assert tray.status_text == "就绪"
-    assert "Ctrl+Alt+Space" in tray.tooltip
+    assert tray.tooltip == "麦笔：就绪"
     assert tray.primary_action_text == "开始语音输入"
     assert floating.visible is False
     assert floating.status_text == "就绪"
@@ -40,7 +40,7 @@ def test_listening_state_shows_pending_voice_copy_and_escape_cancel_intent() -> 
     assert floating.visible is True
     assert floating.status_text == "正在听写"
     assert floating.primary_text == "正在等待语音..."
-    assert "正在连接" in floating.helper_text
+    assert floating.helper_text == "等待识别结果"
     assert escape_intent.kind == UiIntentKind.CANCEL_INPUT
 
 
@@ -124,7 +124,7 @@ def test_indexed_final_replaces_same_segment_stable_text_without_duplication() -
     assert final.final_text == "第一句。第二句。"
 
 
-def test_release_hotkey_enters_processing_and_keeps_stable_text_confirmable() -> None:
+def test_release_hotkey_with_stable_text_shows_final_confirmable_result() -> None:
     listening = begin_listening()
     stable_state = apply_asr_event(
         listening,
@@ -134,9 +134,10 @@ def test_release_hotkey_enters_processing_and_keeps_stable_text_confirmable() ->
     processing = begin_processing(stable_state)
     floating = build_floating_window_view(processing)
 
-    assert processing.mode == UiMode.PROCESSING
+    assert processing.mode == UiMode.FINAL
     assert processing.confirmable_text == "稳定内容"
-    assert floating.status_text == "正在识别"
+    assert processing.final_text == "稳定内容"
+    assert floating.status_text == "识别完成"
     assert floating.can_confirm is True
     assert intent_from_key(processing, "Enter").text == "稳定内容"
 
@@ -202,7 +203,7 @@ def test_error_state_preserves_recognized_text_for_manual_copy() -> None:
     assert copy_intent.text == "可复制文本"
 
 
-def test_error_after_stable_text_can_copy_but_not_confirm() -> None:
+def test_error_after_stable_text_keeps_confirmable_success_result() -> None:
     state = apply_asr_event(
         begin_listening(),
         AsrEvent(type=AsrEventType.STABLE, text="稳定文本", stable=True, segment_index=0),
@@ -214,12 +215,13 @@ def test_error_after_stable_text_can_copy_but_not_confirm() -> None:
     )
     floating = build_floating_window_view(error_state)
 
-    assert error_state.mode == UiMode.ERROR
+    assert error_state.mode == UiMode.FINAL
     assert error_state.active_text == "稳定文本"
-    assert error_state.can_confirm is False
-    assert floating.can_confirm is False
+    assert error_state.can_confirm is True
+    assert floating.status_text == "识别完成"
+    assert floating.can_confirm is True
     assert floating.can_copy is True
-    assert intent_from_key(error_state, "Enter").kind == UiIntentKind.NO_ACTION
+    assert intent_from_key(error_state, "Enter").text == "稳定文本"
     assert intent_from_copy_action(error_state).text == "稳定文本"
 
 

@@ -1,10 +1,10 @@
 # 项目进度
 
-最后更新：2026-05-24
+最后更新：2026-05-25
 
 ## 当前阶段
 
-项目处于首版基础建设阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层、腾讯云 ASR session 骨架、会话引导层和可体验客户端壳；当前分支已能完成本地签名、真实腾讯云握手和 demo 壳实时语音链路的基础接入。当前主要问题集中在 demo 输入法级交互细节、文本上屏能力、全局快捷键和托盘/浮窗闭环。
+项目处于首版 demo 收口阶段。已完成产品计划、协作规范、Python 项目骨架、`core` 共享接口、`server` 最小 FastAPI 服务、Mock ASR 集成测试、客户端 UI 状态模型、PCM 分片骨架、麦克风采集适配层、腾讯云 ASR session 骨架、会话引导层、剪贴板上屏和可体验客户端壳；当前分支已能通过 `start_maibi.cmd` 一键准备环境、启动本地签名服务并打开 demo 客户端。当前主要问题集中在目标应用文本上屏兼容性、托盘/设置页闭环，以及是否恢复全局快捷键主路径。
 
 ## 已完成
 
@@ -74,21 +74,24 @@
 - 本地提交：`Add demo global hotkey flow`
   - 状态：已提交
   - 内容：新增可测试的全局热键状态机和 Windows 低级键盘 hook，demo 主路径改为 `Ctrl+Alt+Space` 按住录音、松开结束，活跃状态下拦截 `Enter` 确认、`Esc` 取消
+- 本地提交：`Add one-click demo launcher`
+  - 状态：待提交
+  - 内容：新增 `start_maibi.cmd` 和 `client/launcher.py`，自动准备 `.venv`、补齐依赖、检查本地配置、启动签名服务和客户端；同时收口按钮按住说话的连接/结束提示、过早松手取消、稳定文本成功态和 late error 处理。
 
 ## 进行中
 
 - Demo 壳交互与流式模型收口
   - 状态：开发中
-  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/demo_app.py` 已接入全局热键主路径，`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本，并补齐错误保留、取消、清除和复制反馈的基础语义。
+  - 内容：当前分支 `codex/demo-client-shell` 正在收口真实语音链路。`client/session_runner.py` 已改为连接后边采集、边发送、边接收，UI 已按 ASR 句段累积展示 partial/stable/final 文本；demo 按钮路径已补齐连接中、可说话、结束等待提示，采音就绪前松手会取消本次输入，已有稳定文本时 late error 不再覆盖成功结果。全局热键主路径当前在 demo 入口中暂时停用，后续需单独恢复。
 - 文本上屏能力
   - 状态：开发中
   - 内容：已新增剪贴板粘贴 committer、demo 确认按钮和 `Enter` 快捷确认，demo 浮窗已尽量避免抢走目标输入框焦点；仍需在 Windows 10/11 的 Notepad、Word、Chrome 输入框、微信和企业微信等目标应用中手工验证剪贴板恢复和输入注入表现。
 
 ## 下一步
 
-1. 在 Windows 目标应用中手工验证 demo 的文本上屏、剪贴板恢复和失败保留文本。
+1. 在 Windows 目标应用中手工验证 `start_maibi.cmd`、文本上屏、剪贴板恢复和失败保留文本。
 2. 根据手工验证结果补齐必要的上屏失败提示或重试入口。
-3. 继续补全托盘交互、快捷键冲突提示和设置页入口。
+3. 单独评估并恢复全局快捷键主路径，避免与 demo 按钮路径混提交。
 
 ## 执行规则
 

@@ -7,7 +7,6 @@ from client.ui_state import ClientUiState, UiMode
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication
 
-from client.hotkey import HotkeyAction
 from client.demo_app import DemoWindow
 from core import CommitResult, CommitStatus
 
@@ -24,29 +23,6 @@ class _FakeCommitter:
         return self.result
 
 
-class _FakeHotkeyBridge(QObject):
-    action_received = Signal(str)
-    start_failed = Signal(str)
-
-    def __init__(self, active_getter, parent=None) -> None:  # type: ignore[no-untyped-def]
-        super().__init__(parent)
-        self.active_getter = active_getter
-        self.started = False
-        self.stopped = False
-
-    def start(self) -> None:
-        self.started = True
-
-    def stop(self) -> None:
-        self.stopped = True
-
-    def emit_action(self, action: HotkeyAction) -> None:
-        self.action_received.emit(action.value)
-
-    def emit_start_failed(self, message: str) -> None:
-        self.start_failed.emit(message)
-
-
 class _FakeWindowTargeter:
     def __init__(self, handle: int | None = 42) -> None:
         self.handle = handle
@@ -60,17 +36,9 @@ class _FakeWindowTargeter:
         pass
 
 
-def _window(**kwargs) -> tuple[DemoWindow, _FakeHotkeyBridge]:  # type: ignore[no-untyped-def]
-    bridge: _FakeHotkeyBridge | None = None
-
-    def factory(active_getter, parent):  # type: ignore[no-untyped-def]
-        nonlocal bridge
-        bridge = _FakeHotkeyBridge(active_getter, parent)
-        return bridge
-
-    window = DemoWindow(hotkey_bridge_factory=factory, **kwargs)
-    assert bridge is not None
-    return window, bridge
+def _window(**kwargs) -> tuple[DemoWindow, None]:  # type: ignore[no-untyped-def]
+    window = DemoWindow(**kwargs)
+    return window, None
 
 
 def test_demo_app_module_exists() -> None:
@@ -89,7 +57,7 @@ def _flush_events() -> None:
     app.processEvents()
 
 
-def test_demo_window_session_failure_preserves_preview_text_for_copy() -> None:
+def test_demo_window_session_failure_after_stable_text_keeps_success_result() -> None:
     _app()
     window, _bridge = _window()
     try:
@@ -98,10 +66,10 @@ def test_demo_window_session_failure_preserves_preview_text_for_copy() -> None:
 
         window._on_session_failed(1, "网络中断")
 
-        assert window.state.mode.value == "error"
+        assert window.state.mode == UiMode.FINAL
         assert window.state.active_text == "已经识别"
+        assert window.state.can_confirm is True
         assert window.state.can_copy is True
-        assert window.state.can_confirm is False
     finally:
         window.close()
 
@@ -138,13 +106,12 @@ def test_demo_window_copy_action_shows_success_notice() -> None:
 
 def test_demo_window_uses_non_focus_tool_window_flags() -> None:
     _app()
-    window, bridge = _window()
+    window, _bridge = _window()
     try:
         assert bool(window.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus)
         assert bool(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         assert window.focusPolicy().name == "NoFocus"
         assert window.confirm_button.focusPolicy().name == "NoFocus"
-        assert bridge.started is True
     finally:
         window.close()
 
@@ -188,31 +155,7 @@ def test_demo_window_confirm_button_is_visible_entry_for_commit() -> None:
         window.close()
 
 
-def test_demo_window_global_hotkey_actions_drive_recording_methods() -> None:
-    _app()
-    targeter = _FakeWindowTargeter(55)
-    window, bridge = _window(window_targeter=targeter)
-    calls: list[str] = []
-    try:
-        def start_recording() -> None:
-            window.commit_target_handle = window._window_targeter().capture_foreground()
-            calls.append("start")
-
-        window._start_recording = start_recording  # type: ignore[method-assign]
-        window._stop_recording = lambda: calls.append("stop")  # type: ignore[method-assign]
-
-        bridge.emit_action(HotkeyAction.START_RECORDING)
-        bridge.emit_action(HotkeyAction.STOP_RECORDING)
-        _flush_events()
-
-        assert calls == ["start", "stop"]
-        assert window.commit_target_handle == 55
-        assert targeter.captured == 1
-    finally:
-        window.close()
-
-
-def test_demo_window_start_recording_shows_wait_notice_before_capture_ready() -> None:
+def test_demo_window_start_recording_shows_wait_notice() -> None:
     _app()
     window, _bridge = _window(window_targeter=_FakeWindowTargeter(55))
     try:
@@ -246,7 +189,7 @@ def test_demo_window_start_recording_shows_wait_notice_before_capture_ready() ->
             demo_module.SessionWorker = original_worker  # type: ignore[assignment]
 
         assert window.state.mode == UiMode.LISTENING
-        assert window.state.notice_message == "正在连接，请等待提示后再说"
+        assert window.state.notice_message == "正在连接语音服务，请稍候"
     finally:
         window.close()
 
@@ -256,60 +199,80 @@ def test_demo_window_capture_ready_updates_notice() -> None:
     window, _bridge = _window()
     try:
         window.worker_generation = 2
-        window.state = ClientUiState(mode=UiMode.LISTENING, notice_message="正在连接，请等待提示后再说")
+        window.state = ClientUiState(mode=UiMode.LISTENING, notice_message="正在连接语音服务，请稍候")
 
         window._on_capture_ready(2)
 
+        assert window.capture_ready_generation == 2
         assert window.state.notice_message == "可以开始说话"
         assert window.helper_text.text() == "可以开始说话"
     finally:
         window.close()
 
 
-def test_demo_window_global_hotkey_confirm_commits_text() -> None:
+def test_demo_window_stop_before_capture_ready_cancels_input() -> None:
     _app()
-    committer = _FakeCommitter(CommitResult(status=CommitStatus.SUCCESS))
-    window, bridge = _window(text_committer=committer, window_targeter=_FakeWindowTargeter(66))
+    window, _bridge = _window()
+
+    class _FakeWorker:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def isRunning(self) -> bool:
+            return True
+
+        def request_cancel(self) -> None:
+            self.cancelled = True
+
+    worker = _FakeWorker()
     try:
-        window.commit_target_handle = 66
-        window.state = ClientUiState(mode=UiMode.FINAL, stable_text="热键上屏", final_text="热键上屏")
+        window.worker = worker  # type: ignore[assignment]
+        window.worker_generation = 3
+        window.capture_ready_generation = None
+        window.commit_target_handle = 55
+        window.state = ClientUiState(mode=UiMode.LISTENING, notice_message="正在连接语音服务，请稍候")
 
-        bridge.emit_action(HotkeyAction.CONFIRM)
-        _flush_events()
+        window._stop_recording()
 
-        assert committer.committed_text == "热键上屏"
-        assert committer.target_handle == 66
-        assert window.state.mode == UiMode.IDLE
-    finally:
-        window.close()
-
-
-def test_demo_window_global_hotkey_cancel_discards_active_text() -> None:
-    _app()
-    window, bridge = _window()
-    try:
-        window.state = ClientUiState(mode=UiMode.PROCESSING, partial_text="取消文本")
-
-        bridge.emit_action(HotkeyAction.CANCEL)
-        _flush_events()
-
+        assert worker.cancelled is True
+        assert window.worker_generation == 4
+        assert window.capture_ready_generation is None
+        assert window.commit_target_handle is None
         assert window.state.mode == UiMode.CANCELLED
-        assert window.state.active_text == ""
     finally:
+        window.worker = None
         window.close()
 
 
-def test_demo_window_global_hotkey_failure_is_visible() -> None:
+def test_demo_window_stop_after_capture_ready_shows_closing_notice_without_stable_text() -> None:
     _app()
-    window, bridge = _window()
-    try:
-        bridge.emit_start_failed("global_hotkey_hook_failed:5")
-        _flush_events()
+    window, _bridge = _window()
 
-        assert window.state.mode == UiMode.ERROR
-        assert window.state.error_code == "global_hotkey_failed"
-        assert "global_hotkey_hook_failed:5" in window.helper_text.text()
+    class _FakeWorker:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def isRunning(self) -> bool:
+            return True
+
+        def request_stop(self) -> None:
+            self.stopped = True
+
+    worker = _FakeWorker()
+    try:
+        window.worker = worker  # type: ignore[assignment]
+        window.worker_generation = 5
+        window.capture_ready_generation = 5
+        window.state = ClientUiState(mode=UiMode.LISTENING)
+
+        window._stop_recording()
+
+        assert worker.stopped is True
+        assert window.state.mode == UiMode.PROCESSING
+        assert window.state.notice_message == "正在结束录音并等待识别返回"
+        assert window.helper_text.text() == "正在结束录音并等待识别返回"
     finally:
+        window.worker = None
         window.close()
 
 

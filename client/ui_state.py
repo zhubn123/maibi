@@ -6,9 +6,6 @@ from enum import StrEnum
 from core import AsrEvent, AsrEventType
 
 
-DEFAULT_HOTKEY_LABEL = "Ctrl+Alt+Space"
-
-
 class UiMode(StrEnum):
     IDLE = "idle"
     LISTENING = "listening"
@@ -123,9 +120,9 @@ _TRAY_ACTION_TEXT: dict[UiMode, str] = {
 }
 
 _FLOATING_HELPER_TEXT: dict[UiMode, str] = {
-    UiMode.IDLE: f"按住 {DEFAULT_HOTKEY_LABEL} 开始语音输入",
-    UiMode.LISTENING: "正在连接，等待就绪后开始说话；Esc 取消",
-    UiMode.PROCESSING: "正在等待最终识别结果，Esc 可取消本次输入",
+    UiMode.IDLE: "点击按钮开始语音输入",
+    UiMode.LISTENING: "等待识别结果",
+    UiMode.PROCESSING: "正在等待最终识别结果",
     UiMode.ERROR: "请重试；如有已识别文本，可手动复制",
     UiMode.CANCELLED: "本次输入已取消，不会写入文本",
     UiMode.FINAL: "可确认上屏，也可手动复制文本",
@@ -141,6 +138,17 @@ def begin_listening() -> ClientUiState:
 
 
 def begin_processing(state: ClientUiState) -> ClientUiState:
+    if state.confirmable_text:
+        return replace(
+            state,
+            mode=UiMode.FINAL,
+            partial_text="",
+            stable_text=state.confirmable_text,
+            final_text=state.confirmable_text,
+            error_code=None,
+            error_message=None,
+            notice_message=None,
+        )
     return replace(
         state,
         mode=UiMode.PROCESSING,
@@ -159,6 +167,17 @@ def apply_asr_event(state: ClientUiState, event: AsrEvent) -> ClientUiState:
         return state
 
     if event.type == AsrEventType.ERROR:
+        if state.confirmable_text:
+            return replace(
+                state,
+                mode=UiMode.FINAL,
+                partial_text="",
+                stable_text=state.confirmable_text,
+                final_text=state.confirmable_text,
+                error_code=None,
+                error_message=None,
+                notice_message=None,
+            )
         return replace(
             state,
             mode=UiMode.ERROR,
@@ -246,11 +265,21 @@ def with_notice(state: ClientUiState, message: str) -> ClientUiState:
     return replace(state, notice_message=message)
 
 
+def with_error(state: ClientUiState, *, message: str, error_code: str | None = None) -> ClientUiState:
+    return replace(
+        state,
+        mode=UiMode.ERROR,
+        error_code=error_code,
+        error_message=message,
+        notice_message=None,
+    )
+
+
 def build_tray_view(state: ClientUiState) -> TrayView:
     status_text = _STATUS_TEXT[state.mode]
     return TrayView(
         status_text=status_text,
-        tooltip=f"麦笔：{status_text}（{DEFAULT_HOTKEY_LABEL}）",
+        tooltip=f"麦笔：{status_text}",
         primary_action_text=_TRAY_ACTION_TEXT[state.mode],
     )
 
@@ -341,7 +370,6 @@ def _join_text(*, state_text: str, event_text: str) -> str:
 
 __all__ = [
     "ClientUiState",
-    "DEFAULT_HOTKEY_LABEL",
     "FloatingWindowView",
     "TrayView",
     "UiIntent",
@@ -357,5 +385,6 @@ __all__ = [
     "intent_from_copy_action",
     "intent_from_key",
     "reset_to_idle",
+    "with_error",
     "with_notice",
 ]

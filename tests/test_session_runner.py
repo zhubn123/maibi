@@ -298,3 +298,27 @@ def test_stream_session_treats_clean_close_after_stable_event_as_final() -> None
     assert result.final_state.final_text == "稳定结果"
     assert result.final_state.mode.value == "final"
     assert json.loads(websocket.sent[-1].decode("utf-8")) == {"type": "end"}
+
+
+def test_stream_session_keeps_stable_text_when_provider_reports_late_error() -> None:
+    provider, _transport, _dialer = _provider_with_transport(
+        [
+            json.dumps({"code": 0, "result": {"voice_text_str": "稳定结果", "slice_type": 2, "final": 0, "index": 0}}),
+            json.dumps({"code": 4008, "message": "backend timeout"}),
+        ]
+    )
+    config = AsrSessionConfig()
+    seen: list[str] = []
+
+    result = asyncio.run(
+        run_tencent_stream_session(
+            provider,
+            config,
+            InMemoryAudioSource.from_chunks([b"\x00" * config.frame_size_bytes]),
+            on_event=lambda event: seen.append(event.type.value),
+        )
+    )
+
+    assert seen == ["stable", "error"]
+    assert result.final_state.mode.value == "final"
+    assert result.final_state.final_text == "稳定结果"
